@@ -1,68 +1,47 @@
 # 常见问题
 
-## MUX 会改我 agent 配置里已有的其它 server 吗？
+## 桌面与 CLI 是同一份数据吗？
 
-不会。MUX 只定位 MCP 节点中的目标条目，更新受管连接字段；其它顶层键、其它 server、目标条目里的权限 / OAuth / 工具策略、注释和排版都会保留。写入前会先备份，再以原子替换落盘；备份失败、配置结构不合法或文件在写入期间被其它进程修改时都会拒绝写入。
+是。两者共享 `~/.mux/`、资产、关系与写入规则。完整 CLI 管理 Models、Providers、MCPs 和 Skills；无参数 TUI 聚焦 MCP。无需重复创建资产。
 
-## 为什么 Claude Desktop 里看不到远程 HTTP MCP？
+## 为什么 Agent 可启动，却没有某项配置能力？
 
-`claude_desktop_config.json` 是本地 MCP 配置，只接收 stdio server。远程 MCP 由 Claude Connector 管理，不是同一个本地文件接口；MUX 会隐藏并拒绝向 Claude Desktop 安装 HTTP 条目。
+启动、运行时版本、配置文件与可写能力是不同事实。只有核验过的原生路径和格式才可写；缺少契约的能力保持只读或官方引导。插件宿主存在也不能证明插件已安装。
 
-## 桌面 App 和命令行的数据是分开的吗？
+## MUX 会覆盖我已有的设置吗？
 
-不是。两者共享同一个数据目录 `~/.mux/`，构建在同一个 Rust 核心之上。一端的改动，另一端刷新后立刻可见。你可以只装一个，也可以都装。
+只修改已管理字段，保留其他内容、注释与策略。外部新增和修改先显示为观测；格式不合法、并发变化和不安全的覆盖会拒绝对应写入。请根据当前可用动作采用、恢复或解除管理。
 
-## 提示「MUX 已损坏，无法打开」怎么办？
+## 为什么部分 Agent 没同步成功？
 
-当前发布包未经过 Apple Developer ID 公证，macOS 可能因隔离属性阻止启动，不是应用内容损坏。确认文件来自本项目 Release 后执行：
+每个实际目标单独同步，已经成功的目标保留。查看失败关系的状态和原因，再修复该目标；不需要把其他 Agent 全部重做。
 
-```bash
-xattr -dr com.apple.quarantine /Applications/MUX.app
-```
+## 停用、解除使用、删除有什么区别？
 
-或右键 App → 打开 → 在弹窗里再点「打开」。详见 [安装](/guide/install#提示-mux-已损坏-无法打开)。
+停用保留关系和中央资产。解除使用只去掉对应 Agent 的关系与可安全移除的受管目标。删除中央资产会审阅全部消费者并清理中央内容；Skill 内容会移到备份。外部文件不会被顺手删除。
 
-## 有 Windows / Linux 版吗？
+## 同名的 MCP 或 Skill 怎么处理？
 
-目前桌面 App 打包发布的是 **macOS（Apple Silicon）** 的 `.dmg`。CLI 是原生 Rust，理论上能在其它平台从源码编译（`cargo install --path cli`），但发布的预编译二进制目前是 macOS aarch64。
+MCP 使用 `name::transport`，同名 stdio 与 HTTP 是不同资产。Skill 中央库按名称管理；导入相同中央名称会保留已有消费者，但不会自动覆盖内容不同的外部副本。详情可查看实际副本与内容。
 
-## 「停用」和「删除」有什么区别？
+## Keychain 中有 Key，为什么 Agent 还提示鉴权失败？
 
-- **停用（Disable）**：先保存该 server 的完整语义配置（含 Agent 专属策略），再从 Agent 配置移除；恢复时不会覆盖期间重建的同名条目。适合临时关掉。
-- **删除**：从 agent 卸载。对 manual / 探索 条目，还能从目录**彻底删除**（Forget），同时从所有 agent 卸载。
+确认该 Agent 支持的交付方式。环境变量引用需要启动环境确实提供变量；部分客户端需要明确审阅的原生私有配置交付。检查实际 Provider、协议、Model ID 和套餐，不要把密钥贴到日志中。详见 [Models](/guide/models)。
 
-详见 [核心概念](/guide/concepts#安装-开关-删除)。
+## Skills 支持项目级路径、私有仓库或在线编辑吗？
 
-## 我改了一个目录条目，为什么某个 agent 没更新？
+当前只管理核验过的用户级路径，不支持需认证的私有 Git 来源或在 MUX 内编辑 `SKILL.md`。本地文件夹与压缩包可以直接导入。详见 [Skills](/guide/skills)。
 
-编辑目录条目的连接配置会自动重刷进所有正在使用它的全局 Agent，包括已手改的副本；每个文件都会先备份。仅修改描述或标签不会触发同步。
+## Trace 是在线上传或自动执行吗？
 
-想强制推送，用**重新同步（Resync）**——桌面编辑器里的按钮，或 TUI Registry 屏幕的 `S` 键。定制过的会被跳过并报告，可选强制覆盖。详见 [编辑传播](/guide/concepts#编辑传播-edit-propagation)。
+Trace 读取本地会话或显式导入文件。预览不会上传或执行内容。分享前仍需检查正文中的代码和业务信息。
 
-## 同名的 stdio 和 http 会冲突吗？
+## 怎样更新？
 
-不会。MUX 的身份是 **`name::transport`** 组合键，`sse` 归入 `http`。同名的 stdio 与 http 是**两个独立条目**，各自安装、编辑、删除互不影响。
+桌面端在设置中检查最新正式版；独立 CLI 使用 `mux upgrade`，桌面包内的 CLI 跟随 App 更新。先把 App 安装到 `/Applications`，不要直接在只读 DMG 内执行更新。下载与首次启动说明见 [安装](/guide/install)。
 
-## 目录里的条目从哪来？我能只留一部分吗？
+## 支持哪些平台？
 
-目录是所有**已启用来源**的并集，MUX 不内置写死的 MCP Server 清单。TUI 来源屏幕可单独启停来源；桌面 `v1.2.0` 暂时只提供按来源过滤、刷新和删除。停用来源不会删除底层文件。详见 [来源](/guide/concepts#来源-sources)。
+正式预编译 Desktop 与 CLI 目前发布 macOS Apple Silicon。其他环境可研究源码构建，但不能把可编译等同于已经完成平台验收。
 
-## Mux 精选是必须的吗？
-
-不是。它只是一个**可选**的一键订阅（订阅一个内置的整理过的远程来源）。不加它，目录一样能靠你自己的订阅 / 导入 / 手动 / 探索来源工作。
-
-## 数据能在多台机器间同步吗？
-
-MUX 的目录、来源和状态都在 `~/.mux/` 下。主目录内的 Agent 路径会保存为 `~/…`，但主目录外的自定义绝对路径保持原值；跨机器同步后仍需核对 Agent 是否安装在相同位置。
-
-## MUX 如何更新？
-
-桌面 App 启动后静默检查最新正式版，也可以点击顶部 **检查更新**。独立安装的 CLI 使用 `mux upgrade`；随桌面 App 安装到 `~/.local/bin/mux` 的 CLI 会跟随 App 更新。
-
-如果提示只读文件系统，说明 MUX 仍在 dmg 或 macOS 隔离目录中运行。退出 MUX，
-把 **MUX.app** 拖到 `/Applications` 并选择替换，再从“应用程序”重新打开即可；
-`~/.mux/` 中的现有配置不会受影响。详见 [安装](/guide/install#更新提示只读文件系统)。
-
-## 还有问题？
-
-到 [GitHub Issues](https://github.com/Scoheart/mux/issues) 提问或反馈。
+[GitHub Issues](https://github.com/Scoheart/mux/issues) · [演示](/guide/demo)

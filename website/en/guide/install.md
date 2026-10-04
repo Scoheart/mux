@@ -82,17 +82,6 @@ See [CLI / TUI](/en/guide/cli) for details.
 
 ## Where data lives
 
-All user data lives under `~/.mux/`:
-
-```
-~/.mux/
-├── settings.json           # one document: agents · sources · disabled · state
-├── sources/
-│   ├── remote/<id>.json    # cache of subscribed URLs
-│   └── local/<id>.(json|toml)  # imported local files + the managed manual/discovered sources
-└── backups/                # timestamped backups made before writing to an existing agent file
-```
-
-Both the desktop app and the CLI read and write here, so the two stay in sync by design.
+Desktop and CLI share `~/.mux/`. Central MCP sources, Model metadata, and Skill content live under `assets/`; `settings.json` stores preferences and relationships. Reviews, recovery progress, and backups use dedicated directories. Central keys live in the system Keychain. See [Data layout](/en/guide/concepts#data-layout).
 
 Next → [Core concepts](/en/guide/concepts)

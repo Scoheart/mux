@@ -1,188 +1,43 @@
 <script setup lang="ts">
-import { computed, onMounted, nextTick } from "vue";
-import { useData, withBase } from "vitepress";
-import { initScrollReveal } from "../scroll-reveal";
-
-const props = defineProps<{
-  /** Site locale: zh (default) or en */
-  lang?: "zh" | "en";
-}>();
-
-const { isDark } = useData();
-const isEn = computed(() => props.lang === "en");
-
-const shotSrc = computed(() =>
-  withBase(
-    isDark.value
-      ? "/img/registry-overview-dark.png"
-      : "/img/registry-overview-light.png",
-  ),
-);
-
-const shotAlt = computed(() =>
-  isEn.value
-    ? isDark.value
-      ? "MUX desktop Registry in dark mode"
-      : "MUX desktop Registry in light mode"
-    : isDark.value
-      ? "MUX 桌面 App 暗色模式 Registry"
-      : "MUX 桌面 App 浅色模式 Registry",
-);
-
-const copy = computed(() =>
-  isEn.value
-    ? {
-        shotTitle: "One catalog for MCP across every AI coding Agent",
-        shotDesc:
-          "Browse the Registry and install MCP into Claude Code, Cursor, Codex, and more — MUX writes each Agent’s native config format and path.",
-        sectionHeading: "Built for how you actually work",
-        rows: [
-          {
-            title: "Source-driven catalog",
-            desc: "Subscribe to remote URLs, import local files, paste configs, or let MUX discover what’s already in your agents. No hardcoded server list.",
-            cta: "Core concepts",
-            href: "/en/guide/concepts",
-            visual: "sources",
-          },
-          {
-            title: "Desktop + CLI, one data dir",
-            desc: "The macOS app and the native Rust CLI / TUI share ~/.mux. Change it once — both sides stay in sync.",
-            cta: "CLI / TUI",
-            href: "/en/guide/cli",
-            visual: "dual",
-          },
-          {
-            title: "Safe, local writes",
-            desc: "MUX edits only the target MCP entry. Backups first, atomic replace, comments and policy fields preserved. Nothing leaves your machine.",
-            cta: "FAQ",
-            href: "/en/guide/faq",
-            visual: "safe",
-          },
-        ],
-        ctaTitle: "Start in under a minute",
-        ctaDesc: "Install the desktop app or the CLI, then manage MCP across your agents from one place.",
-        ctaPrimary: "Install",
-        ctaPrimaryHref: "/en/guide/install",
-        ctaSecondary: "What is MUX",
-        ctaSecondaryHref: "/en/guide/what-is-mux",
-      }
-    : {
-        shotTitle: "一份目录，管理所有 AI 编码 Agent 的 MCP",
-        shotDesc:
-          "在 Registry 中浏览 MCP，一键安装到 Claude Code、Cursor、Codex 等 Agent；配置格式与路径由 MUX 自动写入。",
-        sectionHeading: "按真实工作流设计",
-        rows: [
-          {
-            title: "来源驱动，不写死清单",
-            desc: "订阅远程 URL、导入本地文件、粘贴配置，或自动探索各 agent 已有 MCP。目录随来源刷新更新。",
-            cta: "核心概念",
-            href: "/guide/concepts",
-            visual: "sources",
-          },
-          {
-            title: "桌面 + 命令行，同一份数据",
-            desc: "macOS 桌面 App 与原生 Rust CLI / TUI 共享 ~/.mux。一处改动，两端同步。",
-            cta: "命令行 / TUI",
-            href: "/guide/cli",
-            visual: "dual",
-          },
-          {
-            title: "安全、本地写入",
-            desc: "只改目标 MCP 条目：先备份、再原子替换，保留注释与策略字段。完整配置不会上传。",
-            cta: "常见问题",
-            href: "/guide/faq",
-            visual: "safe",
-          },
-        ],
-        ctaTitle: "一分钟开始",
-        ctaDesc: "安装桌面 App 或 CLI，从一处管理所有 AI 编码 agent 的 MCP。",
-        ctaPrimary: "安装",
-        ctaPrimaryHref: "/guide/install",
-        ctaSecondary: "MUX 是什么",
-        ctaSecondaryHref: "/guide/what-is-mux",
-      },
-);
-
-onMounted(async () => {
-  await nextTick();
-  initScrollReveal();
-});
+import { computed } from "vue";
+import { withBase } from "vitepress";
+import reference from "../../reference.json";
+import MuxDemo from "./MuxDemo.vue";
+const props = defineProps<{ lang?: "zh" | "en" }>();
+const en = computed(() => props.lang === "en");
+const prefix = computed(() => en.value ? '/en/guide/' : '/guide/');
+const rows = computed(() => en.value ? [
+  { title: 'One connection. Several Agents.', desc: 'Create a Provider once, add Models, and choose which compatible Agents use them. Account portals and protocol paths stay visible and editable.', href: 'models', cta: 'Models & Providers', image: 'provider' },
+  { title: 'A Skill library with clear sources.', desc: 'Download or import one central copy. Browse by source, read three-line descriptions, and open consumers through their Agent icons.', href: 'skills', cta: 'Manage Skills', image: 'skills' },
+  { title: 'Tools in their native configuration.', desc: 'Add, paste, import, or subscribe to MCPs. Assign from the central library while preserving each Agent’s unrelated settings.', href: 'desktop', cta: 'Desktop guide', image: 'mcps' },
+] : [
+  { title: '一份连接，交给多个 Agent。', desc: '创建 Provider、添加模型，再选择兼容 Agent。服务商入口、模型列表与协议路径直接展示，随时可以编辑。', href: 'models', cta: 'Models 与 Providers', image: 'provider' },
+  { title: '每个 Skill，都能找到来源。', desc: '下载或导入一份中央副本。左侧按来源浏览，卡片展示三行简介，Agent 图标直接连接到使用它的客户端。', href: 'skills', cta: '管理 Skills', image: 'skills' },
+  { title: '让工具进入原生配置。', desc: '添加、粘贴、导入或订阅 MCPs，再从中央库分配给 Agent。原生格式由 MUX 适配，无关设置继续保留。', href: 'desktop', cta: '桌面 App 指南', image: 'mcps' },
+]);
 </script>
 
 <template>
   <div class="mux-home">
-    <!-- Product screenshot band -->
-    <section class="mux-shot" data-reveal>
-      <div class="mux-shot__inner">
-        <h2 class="mux-shot__title">{{ copy.shotTitle }}</h2>
-        <p class="mux-shot__desc">{{ copy.shotDesc }}</p>
-        <div class="mux-shot__frame">
-          <img
-            class="mux-shot__img"
-            :src="shotSrc"
-            :alt="shotAlt"
-            width="2400"
-            height="1642"
-            loading="lazy"
-          />
-        </div>
-      </div>
+    <section id="product-demo" class="mux-product-demo" aria-labelledby="demo-title">
+      <div class="mux-product-demo__meta"><span>v{{ reference.version }} · macOS Apple Silicon</span><a :href="withBase(prefix + 'agents')">{{ reference.agents.length }} {{ en ? 'audited Agents' : '个核验 Agent' }} →</a></div>
+      <h2 id="demo-title">{{ en ? 'See the workspace in action.' : '看看它如何工作。' }}</h2>
+      <p>{{ en ? 'Models, MCPs, Skills, and an Agent picker — in one desktop workspace.' : 'Models、MCPs、Skills 与 Agent 选择器，都在同一个桌面工作区。' }}</p>
+      <MuxDemo :lang="lang" />
     </section>
-
-    <!-- Alternating story rows (Buzzy seo-feature pattern) -->
     <section class="mux-story">
-      <header class="mux-story__header" data-reveal>
-        <h2 class="mux-story__heading">{{ copy.sectionHeading }}</h2>
-      </header>
-
-      <article
-        v-for="(row, i) in copy.rows"
-        :key="row.title"
-        class="mux-row"
-        :class="{ 'is-reverse': i % 2 === 1 }"
-        data-reveal
-      >
-        <div class="mux-row__visual" :data-visual="row.visual">
-          <div class="mux-panel">
-            <div v-if="row.visual === 'sources'" class="mux-panel__sources">
-              <span>remote</span>
-              <span>local</span>
-              <span>manual</span>
-              <span>discovered</span>
-            </div>
-            <div v-else-if="row.visual === 'dual'" class="mux-panel__dual">
-              <div class="mux-panel__chip">Desktop</div>
-              <div class="mux-panel__chip mux-panel__chip--accent">~/.mux</div>
-              <div class="mux-panel__chip">CLI / TUI</div>
-            </div>
-            <div v-else class="mux-panel__safe">
-              <code>backup → write → atomic replace</code>
-            </div>
-          </div>
-        </div>
-        <div class="mux-row__text">
-          <h3 class="mux-row__title">{{ row.title }}</h3>
-          <p class="mux-row__desc">{{ row.desc }}</p>
-          <a class="mux-try" :href="withBase(row.href)">
-            {{ row.cta }}
-            <span aria-hidden="true">→</span>
-          </a>
-        </div>
+      <header class="mux-story__header" data-reveal><h2 class="mux-story__heading">{{ en ? 'Configure once. Choose where it goes.' : '配置一次，决定交给谁。' }}</h2></header>
+      <article v-for="(row, i) in rows" :key="row.href" class="mux-row" :class="{ 'is-reverse': i % 2 === 1 }" data-reveal>
+        <div class="mux-row__visual mux-row__visual--screenshot"><img :src="withBase('/media/mux-1.10.0-' + row.image + '.jpg')" :alt="row.title" width="1440" height="984" loading="lazy" /></div>
+        <div class="mux-row__text"><h3 class="mux-row__title">{{ row.title }}</h3><p class="mux-row__desc">{{ row.desc }}</p><a class="mux-try" :href="withBase(prefix + row.href)">{{ row.cta }} <span aria-hidden="true">→</span></a></div>
       </article>
     </section>
-
-    <!-- Bottom CTA -->
-    <section class="mux-cta" data-reveal>
-      <h2 class="mux-cta__title">{{ copy.ctaTitle }}</h2>
-      <p class="mux-cta__desc">{{ copy.ctaDesc }}</p>
-      <div class="mux-cta__actions">
-        <a class="mux-btn mux-btn--brand" :href="withBase(copy.ctaPrimaryHref)">
-          {{ copy.ctaPrimary }}
-        </a>
-        <a class="mux-btn mux-btn--alt" :href="withBase(copy.ctaSecondaryHref)">
-          {{ copy.ctaSecondary }}
-        </a>
-      </div>
+    <section class="mux-automation" data-reveal>
+      <div><span class="mux-eyebrow">DESKTOP + CLI</span><h2>{{ en ? 'Give your Agent the same controls.' : '也让你的 Agent 操作这份资源库。' }}</h2><p>{{ en ? 'Batch status reads, inspect local traces, and review a plan before committing it in the original process. Desktop and CLI share the same assets and safety rules.' : '批量查询状态、读取本地 Trace，把计划交给人或其他 Agent 审阅，再执行原计划。桌面与 CLI 共用资产和写入规则。' }}</p><a class="mux-try" :href="withBase(prefix + 'cli')">{{ en ? 'CLI reference' : 'CLI 使用指南' }} →</a></div>
+      <pre><code>mux status --agent codex --agent opencode --json
+mux trace list --agent codex --json
+mux operation review --file request.json --json</code></pre>
     </section>
+    <section class="mux-cta" data-reveal><h2 class="mux-cta__title">{{ en ? 'Start with the Agents you already use.' : '从你正在使用的 Agent 开始。' }}</h2><p class="mux-cta__desc">{{ en ? 'Install MUX, create a central asset, then choose its consumers.' : '安装 MUX，创建一份中央资产，再选择需要使用它的客户端。' }}</p><div class="mux-cta__actions"><a class="mux-btn mux-btn--brand" :href="withBase(prefix + 'install')">{{ en ? 'Install MUX' : '安装 MUX' }}</a><a class="mux-btn mux-btn--alt" :href="withBase(prefix + 'providers')">{{ en ? 'Provider templates' : 'Provider 模板' }}</a></div></section>
   </div>
 </template>

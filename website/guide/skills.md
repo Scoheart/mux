@@ -1,133 +1,56 @@
 # 用户级 Skills
 
-MUX 把符合 Agent Skills 格式的用户级 Skill 作为中央资产统一管理。Desktop 负责添加和维护中央 Skill；Desktop 与 CLI 都可以单独选择哪些 Agent 消费它。Agent 页面不再解析来源或重新安装同一个 Skill。当前版本只管理用户主目录中的全局 Skill，不读取或写入项目目录中的 `.agents/skills`、`.claude/skills` 等内容。
+Skill 是包含 `SKILL.md` 的指令目录。MUX 保留一份中央副本，通过链接分配给已核验的用户级 Agent 目录；只管理全局 Skills。
 
-CLI 提供 `mux skill list/show/status/assign/unassign/enable/disable/converge`。无参数 TUI 是面向 MCP 的终端工作区，不承担 Skill 生命周期界面。
+## 获取 Skill
 
-## 添加到中央资产库
-
-在顶部打开 **Skills**，点击 **添加 Skill**。选择 GitHub 来源后直接下载，选择本地文件夹或压缩包后直接导入；一个来源包含多个 Skill 时，只需勾选需要的项目。中央入库不再展示审核、风险证据或文件差异页面。这个流程只写 `~/.mux/assets/skills/items/` 中央副本，不选择 Agent、不创建 link，也不建立消费关系。入库完成后，从对应 Agent 页的 Skills 标签单独选择消费者。
-
-底层仍会校验来源、目录边界、压缩包结构、内容哈希和并发变化，并通过临时目录与原子事务写入；这些检查不再增加用户操作步骤。同名中央资产不会被静默覆盖，只有用户选择“备份并下载/导入”后才替换。
-
-| 来源 | 行为 |
+| 来源 | 用法 |
 |---|---|
-| 公开 GitHub | 支持 `owner/repo`、仓库 URL 和 GitHub tree 子目录 URL。MUX 通过 HTTPS 解析到不可变 commit 并下载归档，不调用本机 Git。 |
-| 本地目录 | 只能通过 macOS 原生文件夹选择器选择。MUX 复制一份快照，不创建指向原目录的活链接，也不接受手输路径。 |
-| 本地压缩包 | 通过原生文件选择器导入 `.zip`、`.tar.gz`、`.tgz` 或 `.tar`。MUX 安全解包并记录包内 Skill 路径，后续可重新检查、更新或修复。 |
+| GitHub | 填写公开仓库或子目录 URL，解析后选择具体 Skill |
+| 本地文件夹 | 选择单个 Skill 或包含多个 Skill 的目录 |
+| 压缩包 | 导入 `.zip`、`.tar.gz`、`.tgz` 或 `.tar` |
+| Agent 中的外部副本 | 先只读观察，再显式导入准确副本 |
 
-来源中可以包含一个或多个具有有效 `SKILL.md` 的 Skill。解析与安全校验都由 MUX 自带的 Rust core 完成，因此运行功能不需要安装 Git、Node.js 或 `npx`。
+GitHub、本地文件夹与压缩包不需要 Git、Node.js 或 `npx` 来安装。下载和导入先进入中央库；让 Agent 使用它是之后单独的分配步骤。
 
-私有 GitHub 仓库、GitLab、SSH Git 和远程压缩包 URL 当前不受支持。
+## 来源导航与卡片
 
-## 一份中央副本，多处链接
+![Skills 卡片与左侧来源](/media/mux-1.10.0-skills.jpg)
 
-下载或导入完成后，MUX 把每个 Skill 的唯一托管副本放在：
+左侧显示具体来源。相同 GitHub 仓库的不同子目录归在一起；同名但位置不同的本地目录保持独立。搜索作用于当前范围。
+
+每张卡片展示名称、最多三行简介和可读取该 Skill 的 Agent 图标。图标像手中的扑克牌一样叠放，悬停或键盘聚焦展开；点击进入 Agent 的 Skills 页。详情展示中央内容与实际副本，外部副本不会继承中央副本的来源或风险结论。
+
+## 分配、停用与解除使用
+
+在 Agent 的 Skills 页选择中央 Skill。分配后，实际用户级目录中的链接指向：
 
 ```text
 ~/.mux/assets/skills/items/<skill-name>/
 ```
 
-随后建立消费关系时，选中的 Agent 目录中只创建指向中央副本的受管链接。这样一次更新会被所有消费者看到，而解除某个消费关系只移除对应链接，不会删除中央内容。
+同一实际目录可能被多个 Agent 读取，计划会展示全部受影响的 Agent。停用保留关系与中央内容；解除使用保留中央资产，只移除可证明属于 MUX 的链接。
 
-> 受管链接是实时共享入口，不是只读副本。任何会跟随符号链接且拥有当前用户写权限的 Agent，都可能直接修改或删除中央 Skill；Hermes 等产品还明确提供 Skill 修改能力。MUX 不替消费者做沙箱隔离，但会把后续内容偏移标记为本地修改，并在更新或替换前要求审阅与备份。
+外部目录、普通文件和指向其他位置的链接不会被顺手删除。实际目标有多份时，CLI 的启停使用 `--target <target-id>` 精确选择。
 
-MUX 按物理目录归一化消费关系。Cursor IDE 与 Cursor CLI 共用 `~/.cursor/skills`，并可兼容读取 `~/.agents/skills`；Gemini CLI、OpenCode 和 GitHub Copilot CLI 也可以读取 `~/.agents/skills`。因此向 Codex 的首选目录写入链接时，其他已安装 Agent 也可能同时获得访问。共享同一物理 target 的 Agent 会作为不可拆分组一起选择，审阅页列出实际受影响的全部 Agent，并去掉会导致同一 Skill 被重复发现的冗余链接。
+## 更新与本地修改
 
-## 已核验的 Agent 路径
+检查更新只读取版本或内容状态，不改正文。普通低风险更新直接执行；覆盖本地修改、存在冲突或涉及高风险候选时才需要一次审阅。
 
-当前为以下 **54 个 Agent** 提供经过官方文档或官方源码核验的用户级 Skills 能力。MUX 只显示本机安装探针命中且能力资料已核验的 Agent；目录本身存在不等于对应 Agent 已安装。
+重新安装、导入同名的中央资产和更新会保留既有消费关系与停用状态。上游 revision 变化而内容不变时，只更新版本元数据。采用外部内容会重新读取、审计并绑定当前内容哈希；审阅后文件改变会拒绝旧计划。
 
-| Agent | 首选用户级目录 | 兼容读取目录 |
-|---|---|---|
-| Amp | `~/.config/agents/skills` | `~/.agents/skills`、`~/.config/amp/skills`、`~/.claude/skills` |
-| Google Antigravity | `~/.gemini/config/skills` | — |
-| Augment Code | `~/.augment/skills` | `~/.claude/skills`、`~/.agents/skills` |
-| Claude Code | `~/.claude/skills` | — |
-| Cline | `~/.cline/skills` | — |
-| CodeBuddy Code | `~/.codebuddy/skills` | — |
-| CodeWhale | `~/.codewhale/skills` | — |
-| Codex CLI / Desktop（共享目录） | `~/.agents/skills` | — |
-| GitHub Copilot CLI | `~/.copilot/skills` | `~/.agents/skills` |
-| Crush | `~/.config/crush/skills` | `~/.config/agents/skills`、`~/.agents/skills`、`~/.claude/skills` |
-| Cursor | `~/.cursor/skills` | `~/.agents/skills` |
-| Cursor CLI | `~/.cursor/skills` | `~/.agents/skills` |
-| Dirac | `~/.agents/skills` | `~/.dirac/skills`、`~/.claude/skills`、`~/.ai/skills` |
-| Docker Agent | `~/.agents/skills` | — |
-| Eclipse Theia IDE | `~/.agents/skills` | — |
-| Factory Droid | `~/.factory/skills` | — |
-| Firebender | `~/.firebender/skills` | `~/.goose/skills`、`~/.claude/skills`、`~/.codex/skills`、`~/.cursor/skills`、`~/.agents/skills` |
-| Gemini CLI | `~/.gemini/skills` | `~/.agents/skills` |
-| Goose | `~/.agents/skills` | `~/.claude/skills` |
-| Grok Build | `~/.grok/skills` | — |
-| Hermes Agent | `~/.hermes/skills` | — |
-| Kilo Code CLI | `~/.kilo/skills` | — |
-| Kimi Code CLI / Desktop（共享目录） | `~/.kimi-code/skills` | `~/.agents/skills` |
-| Kiro | `~/.kiro/skills` | — |
-| Minion Code | `~/.minion/skills` | `~/.claude/skills` |
-| Mistral Vibe | `~/.vibe/skills` | — |
-| OpenCode CLI / Desktop | `~/.config/opencode/skills` | `~/.claude/skills`、`~/.agents/skills` |
-| OpenHands CLI | `~/.openhands/skills` | — |
-| Pi Coding Agent | `~/.pi/agent/skills` | `~/.agents/skills` |
-| Poolside | `~/.agents/skills` | — |
-| Qoder IDE | `~/.qoder/skills` | — |
-| Qoder CLI | `~/.qoder/skills` | — |
-| QoderWork | `~/.qoderwork/skills` | — |
-| Qwen Code | `~/.qwen/skills` | — |
-| Raycast | `~/.config/raycast/skills` | `~/.claude/skills`、`~/.config/agents/skills`、`~/.agents/skills` |
-| Roo Code | `~/.roo/skills` | `~/.agents/skills` |
-| Atlassian Rovo Dev CLI | `~/.rovodev/skills` | `~/.agents/skills` |
-| Snowflake Cortex Code | `~/.snowflake/cortex/skills` | `~/.claude/skills` |
-| Stakpak | `~/.stakpak/skills` | — |
-| Step Code | `~/.stepcode/agent/skills` | `~/.agents/skills` |
-| TRAE IDE | `~/.trae/skills` | — |
-| Visual Studio Code | `~/.copilot/skills` | `~/.claude/skills`、`~/.agents/skills` |
-| VT Code | `~/.agents/skills` | — |
-| Warp | `~/.agents/skills` | `~/.warp/skills`、`~/.claude/skills`、`~/.codex/skills`、`~/.cursor/skills`、`~/.gemini/skills`、`~/.copilot/skills`、`~/.factory/skills`、`~/.github/skills`、`~/.opencode/skills` |
-| Windsurf | `~/.codeium/windsurf/skills` | `~/.agents/skills` |
-| Zed | `~/.agents/skills` | — |
-| Zencoder | `~/.agents/skills` | — |
+消费者使用的是同一份中央链接，所以修改受管链接下的文件也会改变中央内容。MUX 会检测这类变化，不把它误当成独立外部副本。
 
-Agent 的 MCP 配置路径和 Skills 路径是两套独立契约，MUX 不会从其中一个推断另一个。特别是 `~/.codex/skills` 只在 Firebender 与 Warp 文档中作为兼容目录出现；Codex 自身经过核验的用户级目录仍是 `~/.agents/skills`。更多背景见 [支持的 Agent](/guide/agents#skills-能力)。
+## 风险与恢复
 
-## 后台安全校验
+MUX 校验路径、链接、压缩包、结构与内容哈希；不执行候选脚本。`SKILL.md` 以文本预览，不运行内嵌 HTML 或远程资源。
 
-MUX 在写盘前对候选文件做本地结构与静态校验。越界链接、路径穿越、特殊文件、超限压缩包和提交前发生变化的内容会直接拒绝；可执行文件与脚本等信息保留在资产详情中，但不会在下载或导入时增加审核步骤。
+高风险内容的确认绑定准确哈希。已经确认的中央版本在之后分配、启用时不重复弹出相同风险确认；内容变化会重新审查。减权操作不会因为风险门禁被阻止。
 
-- Skill 正文、内容哈希、文件路径和风险 findings 不会上传。
-- MUX 不运行候选脚本，也不会把“未发现高风险模式”解释为安全认证。
-- `SKILL.md` 只以纯文本预览，不执行其中的 HTML、脚本或远程资源。
-
-风险确认绑定的是进入或替换中央库的准确 `content_hash`。同一中央版本之后执行 assign / enable 时不会重复要求 findings 确认；内容、托管记录或目标在计划后变化仍会按 stale / conflict 拒绝。disable / unassign / remove 属于减权操作，不会被高风险门禁反向阻塞。
-
-## 生命周期操作
-
-下载与导入由用户动作直接提交内部计划；更新、删除、修复和 Agent 分配等已有资产变更仍会按适用情况展示影响。如果内容或设置在计划后变化，MUX 会拒绝旧操作并要求重试。
-
-| 操作 | 结果 |
-|---|---|
-| 分配给 Agent | 从对应 Agent 页选择 Skill，或运行 `mux skill assign <skill-id> --agent <agent-id>`；中央副本本身不变。共享 target 的全部 Agent 会一起显示和变更。 |
-| 解除分配 | `mux skill unassign <skill-id> --agent <agent-id>` 清除关系但不删除中央 Skill。若目标仍是精确指向中央副本的受管链接则安全移除；若已被外部目录、普通文件或异向链接替换，MUX 保留外部内容，只释放 ownership。中央记录或 Agent 安装探针消失后仍可解绑。 |
-| 检查 / 更新 | 后台和手动检查只读取 GitHub revision、本地目录或压缩包哈希，不改变正文。选择更新后才暂存候选、展示差异、重新审计并确认替换；中央副本的本地修改会要求“备份后替换”。 |
-| 导入 | Agent 目录中的外部副本先只读展示。单项导入或历史迁移确认后，MUX 复制并校验内容、备份原目录，再用中央链接替换；多个同名且 hash 相同的目录会合并为一份中央副本，同名不同内容不会自动覆盖。成功前不会移动原副本。 |
-| 停用 | 移除当前受管目标链接，保留中央副本和其他 Agent 的分配。共享目录会在审阅中列出所有失去访问的 Agent。 |
-| 收敛 | `mux skill converge {skill-id} --agent {agent-id} {adopt\|restore\|detach}` 对一个准确 observation 采用外部内容、重建安全的受管链接或解除管理，并列出共享 target 影响的全部 Agent；外部目录、普通文件和异向链接不会被恢复操作覆盖。 |
-| 删除 | 先移除全部受管链接，再把中央副本移入带时间戳的 `~/.mux/backups/skills/`，最后移除托管记录。当前不提供永久清空备份操作。 |
-
-候选和内部事务计划位于 `~/.mux/staging/skills/`，提交进度位于 `~/.mux/journals/skills/`。提交失败或 App 崩溃时，journal 会按已持久化阶段安全回滚或完成提交；无法完成恢复时，Skills 工作区进入只读恢复状态，不继续新的写操作。
+中央状态先保存，各实际目标独立同步。失败目标保留待处理关系，已经完成的目标不回滚；可在详情中查看原因并修复。删除中央 Skill 会审阅消费者，并将中央内容移到带时间戳的备份。
 
 ## 当前边界
 
-当前版本不支持：
+不支持项目级 Skill 写入、需认证的私有 Git 来源，或在 MUX 内直接创建 / 编辑 `SKILL.md`。目录契约与可写能力见 [支持的 Agent](/guide/agents#skills-能力)。
 
-- 项目级 Skills；
-- 私有仓库或需要认证的 Git 来源；
-- 在 MUX 中创建或编辑 `SKILL.md`。
-
-返回 [桌面 App 指南](/guide/desktop#skills) 或查看 [支持的 Agent](/guide/agents#skills-能力)。
-
-## 浏览与来源导航
-
-左侧按 GitHub 仓库、本地文件夹、压缩包和导入副本列出具体来源；同一仓库的不同子目录归到一起，同名但路径不同的本地来源保持独立。选择来源后，右侧只显示对应的 Skill 卡片；搜索在当前来源内生效。
-
-卡片展示名称、简介和当前可读目标的 Agent 图标。图标以小扇形叠放，悬停或键盘聚焦时展开；单个图标上浮并显示 Agent 名称，点击进入对应 Agent 的 Skills 页面。超过四个 Agent 时，`+N` 可打开完整列表。缺失或损坏的目标不会显示为正在使用，完整来源、风险和修复操作仍在详情中。系统启用减少动画时，展开立即生效。
+[CLI Skills 命令](/guide/cli#skill) · [观看演示](/guide/demo)

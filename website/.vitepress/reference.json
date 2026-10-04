@@ -1,0 +1,3586 @@
+{
+  "version": "1.10.0",
+  "agents": [
+    {
+      "id": "agentkube",
+      "name": "Agentkube",
+      "category": "desktop",
+      "docs": "https://agentkube.mintlify.app/agents/mcp",
+      "mcp": {
+        "path": "~/.agentkube/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "amazon-q",
+      "name": "Amazon Q Developer IDE",
+      "category": "plugin",
+      "docs": "https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/mcp-ide.html",
+      "mcp": {
+        "path": "~/.aws/amazonq/default.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "amp",
+      "name": "Amp",
+      "category": "cli",
+      "docs": "https://ampcode.com/manual#model-context-protocol-mcp",
+      "mcp": {
+        "path": "~/.config/amp/settings.json",
+        "format": "json",
+        "key": "amp.mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.config/agents/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          },
+          {
+            "target_id": "amp-user",
+            "global_dir": "~/.config/amp/skills"
+          },
+          {
+            "target_id": "claude-user",
+            "global_dir": "~/.claude/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "antigravity",
+      "name": "Antigravity",
+      "category": "ide",
+      "docs": "https://antigravity.google/docs/mcp",
+      "mcp": {
+        "path": "~/.gemini/config/mcp_config.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.gemini/config/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "anythingllm",
+      "name": "AnythingLLM",
+      "category": "desktop",
+      "docs": "https://docs.anythingllm.com/mcp-compatibility/desktop",
+      "mcp": {
+        "path": "~/Library/Application Support/anythingllm-desktop/storage/plugins/anythingllm_mcp_servers.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "rovo-dev",
+      "name": "Atlassian Rovo Dev CLI",
+      "category": "cli",
+      "docs": "https://support.atlassian.com/rovo/docs/connect-to-an-mcp-server-in-rovo-dev-cli/",
+      "mcp": {
+        "path": "~/.rovodev/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.rovodev/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "augment",
+      "name": "Augment Code",
+      "category": "cli",
+      "docs": "https://docs.augmentcode.com/cli/integrations",
+      "mcp": {
+        "path": "~/.augment/settings.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.augment/skills",
+        "aliases": [
+          {
+            "target_id": "claude-user",
+            "global_dir": "~/.claude/skills"
+          },
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "boltai",
+      "name": "BoltAI",
+      "category": "desktop",
+      "docs": "https://docs.boltai.com/docs/plugins/mcp-servers",
+      "mcp": {
+        "path": "~/.boltai/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio"
+        ]
+      },
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "capy",
+      "name": "Capy",
+      "category": "desktop",
+      "docs": "https://docs.capy.ai/welcome",
+      "mcp": null,
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "codex-desktop",
+      "name": "ChatGPT",
+      "category": "desktop",
+      "docs": "https://developers.openai.com/codex",
+      "mcp": {
+        "path": "~/.codex/config.toml",
+        "format": "toml",
+        "key": "mcp_servers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.agents/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "chatmcp",
+      "name": "ChatMCP",
+      "category": "desktop",
+      "docs": "https://github.com/daodao97/chatmcp",
+      "mcp": {
+        "path": "~/Library/Application Support/ChatMcp/mcp_server.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "claude-desktop",
+      "name": "Claude",
+      "category": "desktop",
+      "docs": "https://modelcontextprotocol.io/quickstart/user",
+      "mcp": {
+        "path": "~/Library/Application Support/Claude/claude_desktop_config.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio"
+        ]
+      },
+      "skills": null,
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "anthropic-messages"
+        ],
+        "paths": [
+          "~/Library/Application Support/Claude/claude_desktop_config.json",
+          "~/Library/Application Support/Claude-3p/claude_desktop_config.json",
+          "~/Library/Application Support/Claude-3p/configLibrary/_meta.json",
+          "~/Library/Application Support/Claude-3p/configLibrary/6d757800-0000-4000-8000-000000000001.json"
+        ],
+        "multiple": false,
+        "globalSelection": true,
+        "credentialMode": "keychain-export"
+      }
+    },
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "category": "cli",
+      "docs": "https://docs.anthropic.com/en/docs/claude-code/mcp",
+      "mcp": {
+        "path": "~/.claude.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.claude/skills",
+        "aliases": []
+      },
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "anthropic-messages"
+        ],
+        "paths": [
+          "~/.claude/settings.json"
+        ],
+        "multiple": false,
+        "globalSelection": true,
+        "credentialMode": "keychain-command"
+      }
+    },
+    {
+      "id": "cline",
+      "name": "Cline",
+      "category": "plugin",
+      "docs": "https://docs.cline.bot/mcp/configuring-mcp-servers",
+      "mcp": {
+        "path": "~/.cline/data/settings/cline_mcp_settings.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.cline/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "cline-desktop",
+      "name": "Cline",
+      "category": "desktop",
+      "docs": "https://cline.bot/desktop",
+      "mcp": null,
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "cline-cli",
+      "name": "Cline CLI",
+      "category": "cli",
+      "docs": "https://github.com/cline/cline/blob/39ff2359f7e08231281539696e48a166ce49270c/sdk/packages/shared/src/storage/paths.ts",
+      "mcp": {
+        "path": "~/.cline/data/settings/cline_mcp_settings.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.cline/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "codebuddy-ide",
+      "name": "CodeBuddy",
+      "category": "ide",
+      "docs": "https://www.codebuddy.ai/docs/ide/User-guide/MCP",
+      "mcp": null,
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "codebuddy-code",
+      "name": "CodeBuddy CLI",
+      "category": "cli",
+      "docs": "https://www.codebuddy.ai/docs/cli/mcp",
+      "mcp": {
+        "path": "~/.codebuddy/.mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.codebuddy/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "codewhale",
+      "name": "CodeWhale",
+      "category": "cli",
+      "docs": "https://github.com/Hmbown/CodeWhale/blob/main/docs/MCP.md",
+      "mcp": {
+        "path": "~/.codewhale/mcp.json",
+        "format": "json",
+        "key": "servers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.codewhale/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          },
+          {
+            "target_id": "claude-user",
+            "global_dir": "~/.claude/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "codex-ide",
+      "name": "Codex",
+      "category": "plugin",
+      "docs": "https://learn.chatgpt.com/docs/config-file/config-basic",
+      "mcp": {
+        "path": "~/.codex/config.toml",
+        "format": "toml",
+        "key": "mcp_servers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.agents/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "codex",
+      "name": "Codex CLI",
+      "category": "cli",
+      "docs": "https://developers.openai.com/codex/mcp",
+      "mcp": {
+        "path": "~/.codex/config.toml",
+        "format": "toml",
+        "key": "mcp_servers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.agents/skills",
+        "aliases": []
+      },
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "openai-responses"
+        ],
+        "paths": [
+          "~/.codex/config.toml"
+        ],
+        "multiple": false,
+        "globalSelection": true,
+        "credentialMode": "keychain-command"
+      }
+    },
+    {
+      "id": "continue",
+      "name": "Continue",
+      "category": "plugin",
+      "docs": "https://docs.continue.dev/customize/deep-dives/mcp",
+      "mcp": {
+        "path": "~/.continue/config.yaml",
+        "format": "yaml",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "continue-cli",
+      "name": "Continue CLI",
+      "category": "cli",
+      "docs": "https://docs.continue.dev/cli/configuration",
+      "mcp": {
+        "path": "~/.continue/config.yaml",
+        "format": "yaml",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "crush",
+      "name": "Crush",
+      "category": "cli",
+      "docs": "https://github.com/charmbracelet/crush#model-context-protocol-mcp",
+      "mcp": {
+        "path": "~/.config/crush/crush.json",
+        "format": "json",
+        "key": "mcp",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.config/crush/skills",
+        "aliases": [
+          {
+            "target_id": "config-agents-user",
+            "global_dir": "~/.config/agents/skills"
+          },
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          },
+          {
+            "target_id": "claude-user",
+            "global_dir": "~/.claude/skills"
+          }
+        ]
+      },
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "anthropic-messages",
+          "openai-completions"
+        ],
+        "paths": [
+          "~/.config/crush/crush.json"
+        ],
+        "multiple": true,
+        "globalSelection": true,
+        "credentialMode": "environment-reference"
+      }
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "category": "ide",
+      "docs": "https://docs.cursor.com/context/model-context-protocol",
+      "mcp": {
+        "path": "~/.cursor/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.cursor/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "cursor-cli",
+      "name": "Cursor CLI",
+      "category": "cli",
+      "docs": "https://cursor.com/docs/cli/overview",
+      "mcp": {
+        "path": "~/.cursor/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.cursor/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "deepseek-harness",
+      "name": "DeepSeek Harness",
+      "category": "cli",
+      "docs": "https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/packages/skill/skill-filesystem/README.md",
+      "mcp": null,
+      "skills": {
+        "path": "~/.dsh/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "dirac",
+      "name": "Dirac",
+      "category": "cli",
+      "docs": "https://github.com/dirac-run/dirac",
+      "mcp": null,
+      "skills": {
+        "path": "~/.agents/skills",
+        "aliases": [
+          {
+            "target_id": "dirac-user",
+            "global_dir": "~/.dirac/skills"
+          },
+          {
+            "target_id": "claude-user",
+            "global_dir": "~/.claude/skills"
+          },
+          {
+            "target_id": "ai-user",
+            "global_dir": "~/.ai/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "docker-agent",
+      "name": "Docker Agent",
+      "category": "cli",
+      "docs": "https://github.com/docker/docker-agent",
+      "mcp": null,
+      "skills": {
+        "path": "~/.agents/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "factory-desktop",
+      "name": "Factory",
+      "category": "desktop",
+      "docs": "https://docs.factory.ai/harness/mcp",
+      "mcp": {
+        "path": "~/.factory/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.factory/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "factory-droid",
+      "name": "Factory Droid",
+      "category": "cli",
+      "docs": "https://docs.factory.ai/cli/configuration/mcp",
+      "mcp": {
+        "path": "~/.factory/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.factory/skills",
+        "aliases": []
+      },
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "anthropic-messages",
+          "openai-responses",
+          "openai-completions"
+        ],
+        "paths": [
+          "~/.factory/settings.json"
+        ],
+        "multiple": true,
+        "globalSelection": true,
+        "credentialMode": "environment-reference"
+      }
+    },
+    {
+      "id": "firebender",
+      "name": "Firebender",
+      "category": "desktop",
+      "docs": "https://docs.firebender.com/context/mcp/overview",
+      "mcp": {
+        "path": "~/.firebender/firebender.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.firebender/skills",
+        "aliases": [
+          {
+            "target_id": "goose-user",
+            "global_dir": "~/.goose/skills"
+          },
+          {
+            "target_id": "claude-user",
+            "global_dir": "~/.claude/skills"
+          },
+          {
+            "target_id": "codex-compat-user",
+            "global_dir": "~/.codex/skills"
+          },
+          {
+            "target_id": "cursor-user",
+            "global_dir": "~/.cursor/skills"
+          },
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "freebuff",
+      "name": "Freebuff",
+      "category": "cli",
+      "docs": "https://freebuff.com/",
+      "mcp": null,
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini CLI",
+      "category": "cli",
+      "docs": "https://geminicli.com/docs/tools/mcp-server/",
+      "mcp": {
+        "path": "~/.gemini/settings.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.gemini/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "copilot-cli",
+      "name": "GitHub Copilot CLI",
+      "category": "cli",
+      "docs": "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/extend-coding-agent-with-mcp",
+      "mcp": {
+        "path": "~/.copilot/mcp-config.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.copilot/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "antigravity-cli",
+      "name": "Google Antigravity CLI",
+      "category": "cli",
+      "docs": "https://www.antigravity.google/docs/cli/mcp",
+      "mcp": {
+        "path": "~/.gemini/config/mcp_config.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "goose",
+      "name": "Goose",
+      "category": "cli",
+      "docs": "https://goose-docs.ai/docs/guides/config-files/",
+      "mcp": {
+        "path": "~/Library/Application Support/Block/goose/config/config.yaml",
+        "format": "yaml",
+        "key": "extensions",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.agents/skills",
+        "aliases": [
+          {
+            "target_id": "claude-user",
+            "global_dir": "~/.claude/skills"
+          }
+        ]
+      },
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "anthropic-messages",
+          "openai-completions"
+        ],
+        "paths": [
+          "~/Library/Application Support/Block/goose/config/config.yaml"
+        ],
+        "multiple": true,
+        "globalSelection": true,
+        "credentialMode": "environment-reference"
+      }
+    },
+    {
+      "id": "goose-desktop",
+      "name": "Goose",
+      "category": "desktop",
+      "docs": "https://github.com/aaif-goose/goose/blob/591edd47cf2cfea4957d720c607cf2a4def8673d/crates/goose/src/config/paths.rs",
+      "mcp": {
+        "path": "~/Library/Application Support/Block/goose/config/config.yaml",
+        "format": "yaml",
+        "key": "extensions",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.agents/skills",
+        "aliases": [
+          {
+            "target_id": "claude-user",
+            "global_dir": "~/.claude/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "grok-build",
+      "name": "Grok Build",
+      "category": "cli",
+      "docs": "https://docs.x.ai/build/features/mcp-servers",
+      "mcp": {
+        "path": "~/.grok/config.toml",
+        "format": "toml",
+        "key": "mcp_servers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.grok/skills",
+        "aliases": []
+      },
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "anthropic-messages",
+          "openai-responses",
+          "openai-completions"
+        ],
+        "paths": [
+          "~/.grok/config.toml"
+        ],
+        "multiple": true,
+        "globalSelection": true,
+        "credentialMode": "environment-reference"
+      }
+    },
+    {
+      "id": "hermes",
+      "name": "Hermes Agent",
+      "category": "cli",
+      "docs": "https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/mcp.md",
+      "mcp": {
+        "path": "~/.hermes/config.yaml",
+        "format": "yaml",
+        "key": "mcp_servers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.hermes/skills",
+        "aliases": []
+      },
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "anthropic-messages",
+          "openai-completions"
+        ],
+        "paths": [
+          "~/.hermes/config.yaml"
+        ],
+        "multiple": true,
+        "globalSelection": true,
+        "credentialMode": "environment-reference"
+      }
+    },
+    {
+      "id": "ibm-bob",
+      "name": "IBM Bob",
+      "category": "ide",
+      "docs": "https://bob.ibm.com/docs/ide/configuration/mcp/mcp-in-bob",
+      "mcp": {
+        "path": "~/.bob/settings/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "jan-desktop",
+      "name": "Jan",
+      "category": "desktop",
+      "docs": "https://github.com/janhq/jan/blob/14a720628f9592c8e60f7e081ef733076db8a6a9/src-tauri/src/core/mcp/commands.rs",
+      "mcp": {
+        "path": "~/Library/Application Support/Jan/data/mcp_config.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.jan/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "jan-cli",
+      "name": "Jan Agent",
+      "category": "cli",
+      "docs": "https://github.com/janhq/jan/blob/14a720628f9592c8e60f7e081ef733076db8a6a9/src-tauri/src/core/mcp/commands.rs",
+      "mcp": {
+        "path": "~/Library/Application Support/Jan/data/mcp_config.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.jan/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "jcode",
+      "name": "jcode",
+      "category": "cli",
+      "docs": "https://github.com/1jehuang/jcode/blob/77f4f9d50bb41ae849da9ffaab7ea25e7815e096/crates/jcode-base/src/mcp/protocol.rs",
+      "mcp": {
+        "path": "~/.jcode/mcp.json",
+        "format": "json",
+        "key": "servers",
+        "transports": [
+          "stdio"
+        ]
+      },
+      "skills": {
+        "path": "~/.jcode/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "junie",
+      "name": "JetBrains Junie",
+      "category": "plugin",
+      "docs": "https://www.jetbrains.com/help/junie/model-context-protocol-mcp.html",
+      "mcp": {
+        "path": "~/.junie/mcp/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "junie-cli",
+      "name": "Junie CLI",
+      "category": "cli",
+      "docs": "https://junie.jetbrains.com/docs/junie-cli-mcp-configuration.html",
+      "mcp": {
+        "path": "~/.junie/mcp/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.junie/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "kilo-vscode",
+      "name": "Kilo Code",
+      "category": "plugin",
+      "docs": "https://github.com/kilo-org/kilocode/blob/76bcfd40be616a72f4697b3041565f322245b462/packages/kilo-vscode/src/kilo-provider/config-file.ts",
+      "mcp": {
+        "path": "~/.config/kilo/kilo.jsonc",
+        "format": "json",
+        "key": "mcp",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.kilo/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "kilo-code",
+      "name": "Kilo Code CLI",
+      "category": "cli",
+      "docs": "https://kilo.ai/docs/automate/mcp/using-in-kilo-code",
+      "mcp": {
+        "path": "~/.config/kilo/kilo.jsonc",
+        "format": "json",
+        "key": "mcp",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.kilo/skills",
+        "aliases": []
+      },
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "anthropic-messages",
+          "openai-responses",
+          "openai-completions",
+          "gemini-generate-content"
+        ],
+        "paths": [
+          "~/.config/kilo/kilo.jsonc"
+        ],
+        "multiple": true,
+        "globalSelection": true,
+        "credentialMode": "environment-reference"
+      }
+    },
+    {
+      "id": "kimi-code-desktop",
+      "name": "Kimi Code",
+      "category": "desktop",
+      "docs": "https://www.kimi.com/code/docs/en/kimi-code-desktop/getting-started.html",
+      "mcp": {
+        "path": "~/.kimi-code/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.kimi-code/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": {
+        "mode": "guided",
+        "protocols": [
+          "anthropic-messages",
+          "openai-responses",
+          "openai-completions",
+          "gemini-generate-content"
+        ],
+        "paths": [
+          "~/.kimi-code/config.toml"
+        ],
+        "multiple": true,
+        "globalSelection": false,
+        "credentialMode": "guided"
+      }
+    },
+    {
+      "id": "kimi-code",
+      "name": "Kimi Code CLI",
+      "category": "cli",
+      "docs": "https://www.kimi.com/code/docs/en/kimi-code-cli/customization/mcp.html",
+      "mcp": {
+        "path": "~/.kimi-code/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.kimi-code/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": {
+        "mode": "guided",
+        "protocols": [
+          "anthropic-messages",
+          "openai-responses",
+          "openai-completions",
+          "gemini-generate-content"
+        ],
+        "paths": [
+          "~/.kimi-code/config.toml"
+        ],
+        "multiple": true,
+        "globalSelection": false,
+        "credentialMode": "guided"
+      }
+    },
+    {
+      "id": "kiro",
+      "name": "Kiro",
+      "category": "ide",
+      "docs": "https://kiro.dev/docs/mcp/configuration/",
+      "mcp": {
+        "path": "~/.kiro/settings/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.kiro/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "kiro-cli",
+      "name": "Kiro CLI",
+      "category": "cli",
+      "docs": "https://kiro.dev/docs/cli/chat/configuration/",
+      "mcp": {
+        "path": "~/.kiro/settings/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.kiro/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "lmstudio",
+      "name": "LM Studio",
+      "category": "desktop",
+      "docs": "https://lmstudio.ai/docs/app/plugins/mcp",
+      "mcp": {
+        "path": "~/.lmstudio/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "mimo-code",
+      "name": "MiMoCode",
+      "category": "cli",
+      "docs": "https://github.com/XiaomiMiMo/MiMo-Code/blob/6babeb0b98f9b4818bddf04a4331edfee04dbf85/packages/cli/src/config/config.ts",
+      "mcp": {
+        "path": "~/.config/mimocode/mimocode.jsonc",
+        "format": "json",
+        "key": "mcp",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.config/mimocode/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "minimax-code",
+      "name": "MiniMax Code",
+      "category": "cli",
+      "docs": "https://agent.minimax.io/download",
+      "mcp": {
+        "path": "~/.mavis/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": null,
+      "model": {
+        "mode": "guided",
+        "protocols": [
+          "anthropic-messages",
+          "openai-responses",
+          "openai-completions"
+        ],
+        "paths": [
+          "~/.mavis/config.yaml"
+        ],
+        "multiple": false,
+        "globalSelection": true,
+        "credentialMode": "guided"
+      }
+    },
+    {
+      "id": "minion-code",
+      "name": "Minion Code",
+      "category": "cli",
+      "docs": "https://github.com/femto/minion-code",
+      "mcp": null,
+      "skills": {
+        "path": "~/.minion/skills",
+        "aliases": [
+          {
+            "target_id": "claude-user",
+            "global_dir": "~/.claude/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "mistral-vibe",
+      "name": "Mistral Vibe",
+      "category": "cli",
+      "docs": "https://docs.mistral.ai/vibe/code/cli/mcp-servers",
+      "mcp": {
+        "path": "~/.vibe/config.toml",
+        "format": "toml",
+        "key": "mcp_servers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.vibe/skills",
+        "aliases": []
+      },
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "openai-completions"
+        ],
+        "paths": [
+          "~/.vibe/config.toml"
+        ],
+        "multiple": true,
+        "globalSelection": true,
+        "credentialMode": "environment-reference"
+      }
+    },
+    {
+      "id": "openclaw",
+      "name": "OpenClaw",
+      "category": "cli",
+      "docs": "https://docs.openclaw.ai/tools/skills",
+      "mcp": null,
+      "skills": {
+        "path": "~/.openclaw/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode",
+      "category": "cli",
+      "docs": "https://opencode.ai/docs/mcp-servers/",
+      "mcp": {
+        "path": "~/.config/opencode/opencode.json",
+        "format": "json",
+        "key": "mcp",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.config/opencode/skills",
+        "aliases": [
+          {
+            "target_id": "claude-user",
+            "global_dir": "~/.claude/skills"
+          },
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "anthropic-messages",
+          "openai-responses",
+          "openai-completions",
+          "gemini-generate-content"
+        ],
+        "paths": [
+          "~/.config/opencode/opencode.json"
+        ],
+        "multiple": true,
+        "globalSelection": true,
+        "credentialMode": "environment-reference"
+      }
+    },
+    {
+      "id": "opencode-desktop",
+      "name": "OpenCode",
+      "category": "desktop",
+      "docs": "https://opencode.ai/docs/mcp-servers/",
+      "mcp": {
+        "path": "~/.config/opencode/opencode.json",
+        "format": "json",
+        "key": "mcp",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.config/opencode/skills",
+        "aliases": [
+          {
+            "target_id": "claude-user",
+            "global_dir": "~/.claude/skills"
+          },
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "anthropic-messages",
+          "openai-responses",
+          "openai-completions",
+          "gemini-generate-content"
+        ],
+        "paths": [
+          "~/.config/opencode/opencode.json"
+        ],
+        "multiple": true,
+        "globalSelection": true,
+        "credentialMode": "environment-reference"
+      }
+    },
+    {
+      "id": "openhands",
+      "name": "OpenHands CLI",
+      "category": "cli",
+      "docs": "https://docs.openhands.dev/openhands/usage/cli/mcp-servers",
+      "mcp": {
+        "path": "~/.openhands/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.openhands/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "pi",
+      "name": "Pi Coding Agent",
+      "category": "cli",
+      "docs": "https://pi.dev/docs/latest/mcp",
+      "mcp": {
+        "path": "~/.pi/agent/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.pi/agent/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "anthropic-messages",
+          "openai-responses",
+          "openai-completions"
+        ],
+        "paths": [
+          "~/.pi/agent/models.json",
+          "~/.pi/agent/settings.json"
+        ],
+        "multiple": true,
+        "globalSelection": true,
+        "credentialMode": "keychain-command"
+      }
+    },
+    {
+      "id": "poolside",
+      "name": "Poolside",
+      "category": "cli",
+      "docs": "https://github.com/poolsideai/pool",
+      "mcp": null,
+      "skills": {
+        "path": "~/.agents/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "qoder",
+      "name": "Qoder",
+      "category": "ide",
+      "docs": "https://docs.qoder.com/user-guide/chat/model-context-protocol",
+      "mcp": {
+        "path": "~/.qoder/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.qoder/skills",
+        "aliases": []
+      },
+      "model": {
+        "mode": "guided",
+        "protocols": [],
+        "paths": [],
+        "multiple": false,
+        "globalSelection": true,
+        "credentialMode": "guided"
+      }
+    },
+    {
+      "id": "qoder-desktop",
+      "name": "Qoder",
+      "category": "desktop",
+      "docs": "https://docs.qoder.com/qoder/connectors",
+      "mcp": {
+        "path": "~/.qoder/settings.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": null,
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "anthropic-messages",
+          "openai-responses",
+          "openai-completions"
+        ],
+        "paths": [
+          "~/.qoder/settings.json"
+        ],
+        "multiple": true,
+        "globalSelection": false,
+        "credentialMode": "environment-reference"
+      }
+    },
+    {
+      "id": "qoder-cli",
+      "name": "Qoder CLI",
+      "category": "cli",
+      "docs": "https://docs.qoder.com/en/cli/mcp-servers",
+      "mcp": {
+        "path": "~/.qoder/settings.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.qoder/skills",
+        "aliases": []
+      },
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "anthropic-messages",
+          "openai-responses",
+          "openai-completions"
+        ],
+        "paths": [
+          "~/.qoder/settings.json"
+        ],
+        "multiple": true,
+        "globalSelection": true,
+        "credentialMode": "environment-reference"
+      }
+    },
+    {
+      "id": "qoderwork",
+      "name": "QoderWork",
+      "category": "desktop",
+      "docs": "https://docs.qoder.com/qoderwork/connectors",
+      "mcp": {
+        "path": "~/.qoderwork/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.qoderwork/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "qwen-code",
+      "name": "Qwen Code",
+      "category": "cli",
+      "docs": "https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/",
+      "mcp": {
+        "path": "~/.qwen/settings.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.qwen/skills",
+        "aliases": []
+      },
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "anthropic-messages",
+          "openai-completions"
+        ],
+        "paths": [
+          "~/.qwen/settings.json"
+        ],
+        "multiple": true,
+        "globalSelection": true,
+        "credentialMode": "environment-reference"
+      }
+    },
+    {
+      "id": "qwenwork",
+      "name": "QwenWork",
+      "category": "desktop",
+      "docs": "https://docs.qwenwork.ai/desktop/connectors",
+      "mcp": {
+        "path": "~/.qwenwork/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.qwenwork/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "qwenwork-cn",
+      "name": "QwenWorkCN",
+      "category": "desktop",
+      "docs": "https://qwenwork.cn/docs/features/connectors",
+      "mcp": {
+        "path": "~/.qwenworkcn/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.qwenworkcn/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "raycast",
+      "name": "Raycast",
+      "category": "desktop",
+      "docs": "https://manual.raycast.com/ai/skills",
+      "mcp": null,
+      "skills": {
+        "path": "~/.config/raycast/skills",
+        "aliases": [
+          {
+            "target_id": "claude-user",
+            "global_dir": "~/.claude/skills"
+          },
+          {
+            "target_id": "config-agents-user",
+            "global_dir": "~/.config/agents/skills"
+          },
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "roo-code",
+      "name": "Roo Code",
+      "category": "plugin",
+      "docs": "https://docs.roocode.com/features/mcp/using-mcp-in-roo",
+      "mcp": {
+        "path": "~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.roo/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "cortex-code",
+      "name": "Snowflake Cortex Code",
+      "category": "cli",
+      "docs": "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code",
+      "mcp": null,
+      "skills": {
+        "path": "~/.snowflake/cortex/skills",
+        "aliases": [
+          {
+            "target_id": "claude-user",
+            "global_dir": "~/.claude/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "stakpak",
+      "name": "Stakpak",
+      "category": "cli",
+      "docs": "https://github.com/stakpak/agent#mcp-proxy-server",
+      "mcp": {
+        "path": "~/.stakpak/mcp.toml",
+        "format": "toml",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.stakpak/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "step-code",
+      "name": "Step Code",
+      "category": "cli",
+      "docs": "https://platform.stepfun.com/docs/zh/step-code/customization/mcp",
+      "mcp": {
+        "path": "~/.stepcode/config.toml",
+        "format": "toml",
+        "key": "mcp_servers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.stepcode/agent/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "tabnine",
+      "name": "Tabnine",
+      "category": "plugin",
+      "docs": "https://docs.tabnine.com/main/getting-started/tabnine-agent/mcp-intro-and-setup",
+      "mcp": {
+        "path": "~/.tabnine/mcp_servers.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "theiaai-theiaide",
+      "name": "TheiaIDE",
+      "category": "ide",
+      "docs": "https://theia-ide.org/docs/user_ai/",
+      "mcp": null,
+      "skills": {
+        "path": "~/.agents/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "trae-ide",
+      "name": "TRAE",
+      "category": "ide",
+      "docs": "https://docs.trae.ai/ide/skills",
+      "mcp": null,
+      "skills": {
+        "path": "~/.trae/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "trae-cli",
+      "name": "TRAE CLI",
+      "category": "cli",
+      "docs": "https://docs.trae.cn/cli_config-file",
+      "mcp": {
+        "path": "~/.trae/traecli.toml",
+        "format": "toml",
+        "key": "mcp_servers",
+        "transports": [
+          "stdio"
+        ]
+      },
+      "skills": null,
+      "model": null
+    },
+    {
+      "id": "vscode",
+      "name": "Visual Studio Code",
+      "category": "ide",
+      "docs": "https://code.visualstudio.com/docs/copilot/chat/mcp-servers",
+      "mcp": {
+        "path": "~/Library/Application Support/Code/User/mcp.json",
+        "format": "json",
+        "key": "servers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.copilot/skills",
+        "aliases": [
+          {
+            "target_id": "claude-user",
+            "global_dir": "~/.claude/skills"
+          },
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "vt-code",
+      "name": "VT Code",
+      "category": "cli",
+      "docs": "https://github.com/vinhnx/VTCode/blob/main/docs/guides/mcp-integration.md",
+      "mcp": {
+        "path": "~/.vtcode/vtcode.toml",
+        "format": "toml",
+        "key": "mcp.providers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.agents/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "warp",
+      "name": "Warp",
+      "category": "desktop",
+      "docs": "https://docs.warp.dev/knowledge-and-collaboration/mcp",
+      "mcp": {
+        "path": "~/.warp/.mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.agents/skills",
+        "aliases": [
+          {
+            "target_id": "warp-user",
+            "global_dir": "~/.warp/skills"
+          },
+          {
+            "target_id": "claude-user",
+            "global_dir": "~/.claude/skills"
+          },
+          {
+            "target_id": "codex-compat-user",
+            "global_dir": "~/.codex/skills"
+          },
+          {
+            "target_id": "cursor-user",
+            "global_dir": "~/.cursor/skills"
+          },
+          {
+            "target_id": "gemini-user",
+            "global_dir": "~/.gemini/skills"
+          },
+          {
+            "target_id": "copilot-user",
+            "global_dir": "~/.copilot/skills"
+          },
+          {
+            "target_id": "factory-user",
+            "global_dir": "~/.factory/skills"
+          },
+          {
+            "target_id": "github-user",
+            "global_dir": "~/.github/skills"
+          },
+          {
+            "target_id": "opencode-compat-user",
+            "global_dir": "~/.opencode/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "windsurf",
+      "name": "Windsurf",
+      "category": "ide",
+      "docs": "https://docs.windsurf.com/windsurf/cascade/mcp",
+      "mcp": {
+        "path": "~/.codeium/windsurf/mcp_config.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.codeium/windsurf/skills",
+        "aliases": [
+          {
+            "target_id": "agents-user",
+            "global_dir": "~/.agents/skills"
+          }
+        ]
+      },
+      "model": null
+    },
+    {
+      "id": "workbuddy-cn",
+      "name": "WorkBuddy",
+      "category": "desktop",
+      "docs": "https://www.workbuddy.cn/docs/workbuddy/Overview",
+      "mcp": {
+        "path": "~/.workbuddy/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.workbuddy/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "workbuddy",
+      "name": "WorkBuddy AI",
+      "category": "desktop",
+      "docs": "https://www.workbuddy.ai/docs/workbuddy/Overview",
+      "mcp": {
+        "path": "~/.workbuddy-ai/mcp.json",
+        "format": "json",
+        "key": "mcpServers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.workbuddy-ai/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "zcode",
+      "name": "ZCode",
+      "category": "desktop",
+      "docs": "https://zcode.z.ai/cn/docs/mcp-services",
+      "mcp": {
+        "path": "~/.zcode/cli/config.json",
+        "format": "json",
+        "key": "mcp.servers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.zcode/skills",
+        "aliases": []
+      },
+      "model": {
+        "mode": "managed",
+        "protocols": [
+          "openai-completions"
+        ],
+        "paths": [
+          "~/.zcode/v2/config.json"
+        ],
+        "multiple": true,
+        "globalSelection": false,
+        "credentialMode": "explicit-plaintext"
+      }
+    },
+    {
+      "id": "zed",
+      "name": "Zed",
+      "category": "ide",
+      "docs": "https://zed.dev/docs/ai/mcp",
+      "mcp": {
+        "path": "~/.config/zed/settings.json",
+        "format": "json",
+        "key": "context_servers",
+        "transports": [
+          "stdio",
+          "http"
+        ]
+      },
+      "skills": {
+        "path": "~/.agents/skills",
+        "aliases": []
+      },
+      "model": null
+    },
+    {
+      "id": "zencoder",
+      "name": "Zenflow",
+      "category": "desktop",
+      "docs": "https://docs.zencoder.ai/features/skills",
+      "mcp": null,
+      "skills": {
+        "path": "~/.agents/skills",
+        "aliases": []
+      },
+      "model": null
+    }
+  ],
+  "providers": [
+    {
+      "id": "portkey",
+      "name": "Portkey",
+      "category": "gateway",
+      "baseUrl": "https://api.portkey.ai/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://portkey.ai/docs/integrations/llms/openai",
+      "portal": {
+        "kind": "setup",
+        "url": "https://portkey.ai/docs/integrations/llms/openai"
+      }
+    },
+    {
+      "id": "helicone",
+      "name": "Helicone AI Gateway",
+      "category": "gateway",
+      "baseUrl": "https://ai-gateway.helicone.ai",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.helicone.ai/getting-started/quick-start",
+      "portal": {
+        "kind": "setup",
+        "url": "https://docs.helicone.ai/getting-started/quick-start"
+      }
+    },
+    {
+      "id": "ppio",
+      "name": "PPIO",
+      "category": "gateway",
+      "baseUrl": "https://api.ppio.com/openai/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://ppio.com/model/ppio-4b",
+      "portal": {
+        "kind": "setup",
+        "url": "https://ppio.com/model/ppio-4b"
+      }
+    },
+    {
+      "id": "infini-ai",
+      "name": "Infini AI GenStudio",
+      "category": "gateway",
+      "baseUrl": "https://cloud.infini-ai.com/maas/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://docs.infini-ai.com/gen-studio/api/get-started/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://cloud.infini-ai.com/iam/secret/key"
+      }
+    },
+    {
+      "id": "aihubmix",
+      "name": "AIHubMix",
+      "category": "gateway",
+      "baseUrl": "https://aihubmix.com/v1",
+      "protocols": [
+        "anthropic-messages",
+        "gemini-generate-content",
+        "openai-completions",
+        "openai-responses"
+      ],
+      "docs": "https://aihubmix.com/developers",
+      "portal": {
+        "kind": "console",
+        "url": "https://console.aihubmix.com/"
+      }
+    },
+    {
+      "id": "302-ai",
+      "name": "302.AI",
+      "category": "gateway",
+      "baseUrl": "https://api.302ai.com/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://studio.302.ai/en/docs/features/model-providers/configuration",
+      "portal": {
+        "kind": "setup",
+        "url": "https://doc.302.ai/"
+      }
+    },
+    {
+      "id": "opencode-zen",
+      "name": "OpenCode Zen",
+      "category": "gateway",
+      "baseUrl": "https://opencode.ai/zen/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions",
+        "openai-responses"
+      ],
+      "docs": "https://opencode.ai/docs/zen/",
+      "portal": {
+        "kind": "console",
+        "url": "https://opencode.ai/auth"
+      }
+    },
+    {
+      "id": "opencode-go",
+      "name": "OpenCode Go",
+      "category": "gateway",
+      "baseUrl": "https://opencode.ai/zen/go/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions",
+        "openai-responses"
+      ],
+      "docs": "https://opencode.ai/docs/go/",
+      "portal": {
+        "kind": "console",
+        "url": "https://opencode.ai/auth"
+      }
+    },
+    {
+      "id": "kilo-gateway",
+      "name": "Kilo Gateway",
+      "category": "gateway",
+      "baseUrl": "https://api.kilo.ai/api/gateway",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://kilo.ai/docs/gateway",
+      "portal": {
+        "kind": "console",
+        "url": "https://app.kilo.ai/"
+      }
+    },
+    {
+      "id": "nanogpt",
+      "name": "NanoGPT",
+      "category": "gateway",
+      "baseUrl": "https://api.nano-gpt.com/api/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions",
+        "openai-responses"
+      ],
+      "docs": "https://docs.nano-gpt.com/",
+      "portal": {
+        "kind": "setup",
+        "url": "https://nano-gpt.com/support"
+      }
+    },
+    {
+      "id": "synthetic",
+      "name": "Synthetic",
+      "category": "gateway",
+      "baseUrl": "https://api.synthetic.new/openai/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://dev.synthetic.new/docs/api/overview",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://dev.synthetic.new/docs/api/overview"
+      }
+    },
+    {
+      "id": "chutes",
+      "name": "Chutes",
+      "category": "gateway",
+      "baseUrl": "https://llm.chutes.ai/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://chutes.ai/docs/guides/starter-guide",
+      "portal": {
+        "kind": "console",
+        "url": "https://chutes.ai/app"
+      }
+    },
+    {
+      "id": "featherless-ai",
+      "name": "Featherless AI",
+      "category": "gateway",
+      "baseUrl": "https://api.featherless.ai/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://featherless.ai/docs/quickstart-guide",
+      "portal": {
+        "kind": "console",
+        "url": "https://featherless.ai/dashboard"
+      }
+    },
+    {
+      "id": "venice",
+      "name": "Venice",
+      "category": "gateway",
+      "baseUrl": "https://api.venice.ai/api/v1",
+      "protocols": [
+        "openai-completions",
+        "openai-responses"
+      ],
+      "docs": "https://docs.venice.ai/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://venice.ai/settings/api"
+      }
+    },
+    {
+      "id": "friendli",
+      "name": "FriendliAI",
+      "category": "gateway",
+      "baseUrl": "https://api.friendli.ai/serverless/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://friendli.ai/docs/guides/model-apis/quickstart",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://friendli.ai/suite/~/setting/keys"
+      }
+    },
+    {
+      "id": "inference-net",
+      "name": "Inference.net",
+      "category": "gateway",
+      "baseUrl": "https://api.inference.net/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.inference.net/api/api-quickstart",
+      "portal": {
+        "kind": "setup",
+        "url": "https://docs.inference.net/api/api-quickstart"
+      }
+    },
+    {
+      "id": "ovhcloud",
+      "name": "OVHcloud AI Endpoints",
+      "category": "gateway",
+      "baseUrl": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
+      "protocols": [
+        "openai-completions",
+        "openai-responses"
+      ],
+      "docs": "https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-getting-started",
+      "portal": {
+        "kind": "console",
+        "url": "https://www.ovh.com/manager/"
+      }
+    },
+    {
+      "id": "upstage",
+      "name": "Upstage",
+      "category": "official",
+      "baseUrl": "https://api.upstage.ai/v1",
+      "protocols": [
+        "openai-completions",
+        "openai-responses"
+      ],
+      "docs": "https://console.upstage.ai/api/chat",
+      "portal": {
+        "kind": "console",
+        "url": "https://console.upstage.ai/"
+      }
+    },
+    {
+      "id": "ai21",
+      "name": "AI21 Labs",
+      "category": "official",
+      "baseUrl": "https://api.ai21.com/studio/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.ai21.com/reference/jamba-1-6-api-ref",
+      "portal": {
+        "kind": "console",
+        "url": "https://studio.ai21.com/"
+      }
+    },
+    {
+      "id": "zenmux",
+      "name": "ZenMux",
+      "category": "gateway",
+      "baseUrl": "https://zenmux.ai/api/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions",
+        "openai-responses"
+      ],
+      "docs": "https://zenmux.ai/docs/guide/quickstart",
+      "portal": {
+        "kind": "console",
+        "url": "https://zenmux.ai/"
+      }
+    },
+    {
+      "id": "byteplus",
+      "name": "BytePlus ModelArk",
+      "category": "official",
+      "baseUrl": "https://ark.ap-southeast.bytepluses.com/api/v3",
+      "protocols": [
+        "openai-completions",
+        "openai-responses"
+      ],
+      "docs": "https://docs.byteplus.com/en/docs/modelark/quick-start",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://ai.byteplus.com/ark/region:ap-southeast-1/apikey"
+      }
+    },
+    {
+      "id": "tencent-tokenhub-cn",
+      "name": "Tencent TokenHub (China)",
+      "category": "official",
+      "baseUrl": "https://tokenhub.tencentmaas.com/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://cloud.tencent.com/document/product/1823/131382",
+      "portal": {
+        "kind": "console",
+        "url": "https://console.cloud.tencent.com/tokenhub"
+      }
+    },
+    {
+      "id": "tencent-tokenhub-global",
+      "name": "Tencent TokenHub (Global)",
+      "category": "official",
+      "baseUrl": "https://tokenhub-intl.tencentcloudmaas.com/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://intl.cloud.tencent.com/document/product/1300/78939",
+      "portal": {
+        "kind": "console",
+        "url": "https://console.intl.cloud.tencent.com/tokenhub"
+      }
+    },
+    {
+      "id": "longcat",
+      "name": "LongCat",
+      "category": "official",
+      "baseUrl": "https://api.longcat.chat/openai/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://longcat.chat/platform/docs/APIDocs.html",
+      "portal": {
+        "kind": "console",
+        "url": "https://longcat.chat/platform"
+      }
+    },
+    {
+      "id": "iflytek-spark-x2",
+      "name": "iFLYTEK Spark X2",
+      "category": "official",
+      "baseUrl": "https://spark-api-open.xf-yun.com/agent/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://www.xfyun.cn/doc/spark/X2-Flash.html",
+      "portal": {
+        "kind": "console",
+        "url": "https://console.xfyun.cn/"
+      }
+    },
+    {
+      "id": "nscale",
+      "name": "Nscale",
+      "category": "gateway",
+      "baseUrl": "https://inference.api.nscale.com/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.nscale.com/api-reference/inference/create-chat-completion",
+      "portal": {
+        "kind": "console",
+        "url": "https://console.nscale.com/"
+      }
+    },
+    {
+      "id": "io-net",
+      "name": "io.net",
+      "category": "gateway",
+      "baseUrl": "https://api.intelligence.io.solutions/api/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://io.net/p/how-to-deploy-llama-3-on-io-net-step-by-step-guide",
+      "portal": {
+        "kind": "console",
+        "url": "https://ai.io.net/"
+      }
+    },
+    {
+      "id": "inception",
+      "name": "Inception",
+      "category": "official",
+      "baseUrl": "https://api.inceptionlabs.ai/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.inceptionlabs.ai/get-started",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://platform.inceptionlabs.ai/dashboard/api-keys"
+      }
+    },
+    {
+      "id": "ollama-cloud",
+      "name": "Ollama Cloud",
+      "category": "official",
+      "baseUrl": "https://ollama.com/v1",
+      "protocols": [
+        "openai-completions",
+        "openai-responses"
+      ],
+      "docs": "https://docs.ollama.com/cloud",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://ollama.com/settings/keys"
+      }
+    },
+    {
+      "id": "tinfoil-proxy",
+      "name": "Tinfoil Proxy",
+      "category": "local",
+      "baseUrl": "http://127.0.0.1:3301/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://tinfoil.sh/coding-agents",
+      "portal": {
+        "kind": "console",
+        "url": "https://dash.tinfoil.sh/"
+      }
+    },
+    {
+      "id": "vercel-ai-gateway",
+      "name": "Vercel AI Gateway",
+      "category": "gateway",
+      "baseUrl": "https://ai-gateway.vercel.sh/v1",
+      "protocols": [
+        "openai-completions",
+        "openai-responses"
+      ],
+      "docs": "https://vercel.com/docs/ai-gateway",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://vercel.com/d?title=AI+Gateway+API+Keys&to=%2F%5Bteam%5D%2F~%2Fai-gateway%2Fapi-keys"
+      }
+    },
+    {
+      "id": "routeway",
+      "name": "Routeway",
+      "category": "gateway",
+      "baseUrl": "https://api.routeway.ai/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions",
+        "openai-responses"
+      ],
+      "docs": "https://docs.routeway.ai/",
+      "portal": {
+        "kind": "console",
+        "url": "https://routeway.ai/dashboard"
+      }
+    },
+    {
+      "id": "infron",
+      "name": "Infron",
+      "category": "gateway",
+      "baseUrl": "https://llm.onerouter.pro/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions",
+        "openai-responses"
+      ],
+      "docs": "https://infron.ai/docs",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://infron.ai/dashboard/apiKeys"
+      }
+    },
+    {
+      "id": "apinex",
+      "name": "APInex",
+      "category": "gateway",
+      "baseUrl": "https://api.apinex.bond/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://apinex.bond/developers/models/chat",
+      "portal": {
+        "kind": "console",
+        "url": "https://apinex.bond/"
+      }
+    },
+    {
+      "id": "tokenharbor",
+      "name": "Token Harbor",
+      "category": "gateway",
+      "baseUrl": "https://tokenharbor.ai/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions",
+        "openai-responses"
+      ],
+      "docs": "https://tokenharbor.ai/docs/api/curl",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://tokenharbor.ai/dashboard/api-keys"
+      }
+    },
+    {
+      "id": "azure-openai",
+      "name": "Azure OpenAI",
+      "category": "official",
+      "baseUrl": null,
+      "protocols": [
+        "openai-completions",
+        "openai-responses"
+      ],
+      "docs": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/api-version-lifecycle?view=foundry-classic",
+      "portal": {
+        "kind": "console",
+        "url": "https://ai.azure.com/"
+      }
+    },
+    {
+      "id": "amazon-bedrock-mantle",
+      "name": "Amazon Bedrock Mantle",
+      "category": "official",
+      "baseUrl": null,
+      "protocols": [
+        "openai-responses"
+      ],
+      "docs": "https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html",
+      "portal": {
+        "kind": "console",
+        "url": "https://console.aws.amazon.com/bedrock/home"
+      }
+    },
+    {
+      "id": "cloudflare-workers-ai",
+      "name": "Cloudflare Workers AI",
+      "category": "gateway",
+      "baseUrl": null,
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://developers.cloudflare.com/workers-ai/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://dash.cloudflare.com/profile/api-tokens"
+      }
+    },
+    {
+      "id": "deepinfra",
+      "name": "DeepInfra",
+      "category": "gateway",
+      "baseUrl": "https://api.deepinfra.com/v1/openai",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.deepinfra.com/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://deepinfra.com/dash/api_keys"
+      }
+    },
+    {
+      "id": "sambanova",
+      "name": "SambaNova",
+      "category": "gateway",
+      "baseUrl": "https://api.sambanova.ai/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.sambanova.ai/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://cloud.sambanova.ai/apis"
+      }
+    },
+    {
+      "id": "perplexity",
+      "name": "Perplexity Sonar",
+      "category": "official",
+      "baseUrl": "https://api.perplexity.ai",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.perplexity.ai/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://www.perplexity.ai/account/api/keys"
+      }
+    },
+    {
+      "id": "volcengine",
+      "name": "Volcengine Ark (火山方舟)",
+      "category": "official",
+      "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+      "protocols": [
+        "openai-completions",
+        "openai-responses"
+      ],
+      "docs": "https://www.volcengine.com/docs/82379/1330310",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://console.volcengine.com/ark/region:ark%2Bcn-beijing/apiKey"
+      }
+    },
+    {
+      "id": "volcengine-coding-plan",
+      "name": "Volcengine Coding Plan (火山方舟)",
+      "category": "official",
+      "baseUrl": "https://ark.cn-beijing.volces.com/api/coding/v3",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://www.volcengine.com/docs/82379/1928261",
+      "portal": {
+        "kind": "console",
+        "url": "https://console.volcengine.com/ark/"
+      }
+    },
+    {
+      "id": "baidu-qianfan",
+      "name": "Baidu Qianfan (百度千帆)",
+      "category": "official",
+      "baseUrl": "https://qianfan.baidubce.com/v2",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://cloud.baidu.com/doc/qianfan-docs/s/qm8qxemze",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://console.bce.baidu.com/iam/#/iam/apikey/list"
+      }
+    },
+    {
+      "id": "baidu-qianfan-coding-plan",
+      "name": "Baidu Qianfan Coding Plan (百度千帆)",
+      "category": "official",
+      "baseUrl": "https://qianfan.baidubce.com/v2/coding",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://cloud.baidu.com/doc/qianfan/s/imlg0beiu",
+      "portal": {
+        "kind": "console",
+        "url": "https://console.bce.baidu.com/qianfan/resource/token-plan"
+      }
+    },
+    {
+      "id": "minimax",
+      "name": "MiniMax (Global)",
+      "category": "official",
+      "baseUrl": "https://api.minimax.io/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://platform.minimax.io/docs/guides/quickstart",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://platform.minimax.io/console/access"
+      }
+    },
+    {
+      "id": "minimax-cn",
+      "name": "MiniMax (China)",
+      "category": "official",
+      "baseUrl": "https://api.minimax.cn/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://platform.minimax.cn/docs/guides/quickstart-preparation",
+      "portal": {
+        "kind": "console",
+        "url": "https://platform.minimax.cn/console/"
+      }
+    },
+    {
+      "id": "stepfun",
+      "name": "StepFun (China)",
+      "category": "official",
+      "baseUrl": "https://api.stepfun.com/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://platform.stepfun.com/docs/zh/overview/concept",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://platform.stepfun.com/interface-key"
+      }
+    },
+    {
+      "id": "stepfun-global",
+      "name": "StepFun (Global)",
+      "category": "official",
+      "baseUrl": "https://api.stepfun.ai/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://platform.stepfun.ai/docs/en/quickstart/overview",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://platform.stepfun.ai/interface-key"
+      }
+    },
+    {
+      "id": "zhipuai",
+      "name": "Zhipu AI (智谱)",
+      "category": "official",
+      "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.bigmodel.cn/cn/guide/develop/http/introduction",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://open.bigmodel.cn/usercenter/apikeys"
+      }
+    },
+    {
+      "id": "moonshotai-cn",
+      "name": "Moonshot AI (China)",
+      "category": "official",
+      "baseUrl": "https://api.moonshot.cn/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://platform.moonshot.cn/docs/api/chat",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://platform.kimi.com/console/api-keys"
+      }
+    },
+    {
+      "id": "alibaba-international",
+      "name": "Alibaba Cloud (Singapore)",
+      "category": "official",
+      "baseUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://bailian.console.alibabacloud.com/?apiKey=1"
+      }
+    },
+    {
+      "id": "siliconflow-cn",
+      "name": "SiliconFlow (China)",
+      "category": "gateway",
+      "baseUrl": "https://api.siliconflow.cn/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.siliconflow.cn/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://cloud.siliconflow.cn/account/ak"
+      }
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "category": "gateway",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "protocols": [
+        "openai-responses"
+      ],
+      "docs": "https://openrouter.ai/docs/quickstart",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://openrouter.ai/workspaces/default/keys"
+      }
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "category": "official",
+      "baseUrl": "https://api.anthropic.com",
+      "protocols": [
+        "anthropic-messages"
+      ],
+      "docs": "https://platform.claude.com/docs/en/intro",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://platform.claude.com/settings/keys"
+      }
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "category": "official",
+      "baseUrl": "https://api.openai.com/v1",
+      "protocols": [
+        "openai-responses"
+      ],
+      "docs": "https://developers.openai.com/api/docs/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://platform.openai.com/api-keys"
+      }
+    },
+    {
+      "id": "google",
+      "name": "Google AI Studio",
+      "category": "official",
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "protocols": [
+        "gemini-generate-content",
+        "openai-completions"
+      ],
+      "docs": "https://ai.google.dev/gemini-api/docs/models",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://aistudio.google.com/api-keys"
+      }
+    },
+    {
+      "id": "xai",
+      "name": "xAI",
+      "category": "official",
+      "baseUrl": "https://api.x.ai/v1",
+      "protocols": [
+        "openai-responses"
+      ],
+      "docs": "https://docs.x.ai/",
+      "portal": {
+        "kind": "console",
+        "url": "https://console.x.ai/"
+      }
+    },
+    {
+      "id": "mistral",
+      "name": "Mistral AI",
+      "category": "official",
+      "baseUrl": "https://api.mistral.ai/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.mistral.ai/getting-started/models/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://admin.mistral.ai/plateforme/api-keys"
+      }
+    },
+    {
+      "id": "cohere",
+      "name": "Cohere",
+      "category": "official",
+      "baseUrl": "https://api.cohere.ai/compatibility/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.cohere.com/docs/models",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://dashboard.cohere.com/api-keys"
+      }
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "category": "official",
+      "baseUrl": "https://api.deepseek.com",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://api-docs.deepseek.com/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://platform.deepseek.com/api_keys"
+      }
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "category": "official",
+      "baseUrl": "https://api.groq.com/openai/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://console.groq.com/docs/models",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://console.groq.com/keys"
+      }
+    },
+    {
+      "id": "alibaba",
+      "name": "Alibaba Cloud",
+      "category": "official",
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://bailian.console.aliyun.com/?apiKey=1"
+      }
+    },
+    {
+      "id": "alibaba-coding-plan-cn",
+      "name": "Alibaba Coding Plan (China)",
+      "category": "official",
+      "baseUrl": "https://coding.dashscope.aliyuncs.com/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://help.aliyun.com/zh/model-studio/coding-plan",
+      "portal": {
+        "kind": "console",
+        "url": "https://bailian.console.aliyun.com/cn-beijing/subscription/coding-plan"
+      }
+    },
+    {
+      "id": "alibaba-coding-plan",
+      "name": "Alibaba Coding Plan (Global)",
+      "category": "official",
+      "baseUrl": "https://coding-intl.dashscope.aliyuncs.com/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://www.alibabacloud.com/help/en/model-studio/coding-plan",
+      "portal": {
+        "kind": "console",
+        "url": "https://modelstudio.console.alibabacloud.com/"
+      }
+    },
+    {
+      "id": "alibaba-token-plan-cn",
+      "name": "Alibaba Token Plan (China)",
+      "category": "official",
+      "baseUrl": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://help.aliyun.com/zh/model-studio/token-plan-personal-quick-start",
+      "portal": {
+        "kind": "console",
+        "url": "https://bailian.console.aliyun.com/cn-beijing/subscription/overview"
+      }
+    },
+    {
+      "id": "alibaba-token-plan",
+      "name": "Alibaba Token Plan (Global)",
+      "category": "official",
+      "baseUrl": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://www.alibabacloud.com/help/en/model-studio/token-plan-quickstart",
+      "portal": {
+        "kind": "console",
+        "url": "https://modelstudio.console.alibabacloud.com/ap-southeast-1/subscription/overview"
+      }
+    },
+    {
+      "id": "xiaomi",
+      "name": "Xiaomi MiMo",
+      "category": "official",
+      "baseUrl": "https://api.xiaomimimo.com/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://mimo.mi.com/docs/en-US/quick-start/summary/first-api-call",
+      "portal": {
+        "kind": "console",
+        "url": "https://platform.xiaomimimo.com/"
+      }
+    },
+    {
+      "id": "xiaomi-token-plan-cn",
+      "name": "Xiaomi MiMo Token Plan (China)",
+      "category": "official",
+      "baseUrl": "https://token-plan-cn.xiaomimimo.com/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://mimo.mi.com/docs/zh-CN/tokenplan/Token%20Plan/quick-access",
+      "portal": {
+        "kind": "console",
+        "url": "https://platform.xiaomimimo.com/"
+      }
+    },
+    {
+      "id": "xiaomi-token-plan-sgp",
+      "name": "Xiaomi MiMo Token Plan (Singapore)",
+      "category": "official",
+      "baseUrl": "https://token-plan-sgp.xiaomimimo.com/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://mimo.mi.com/docs/en-US/tokenplan/Token%20Plan/quick-access",
+      "portal": {
+        "kind": "console",
+        "url": "https://platform.xiaomimimo.com/"
+      }
+    },
+    {
+      "id": "xiaomi-token-plan-ams",
+      "name": "Xiaomi MiMo Token Plan (Europe)",
+      "category": "official",
+      "baseUrl": "https://token-plan-ams.xiaomimimo.com/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://mimo.mi.com/docs/en-US/tokenplan/Token%20Plan/quick-access",
+      "portal": {
+        "kind": "console",
+        "url": "https://platform.xiaomimimo.com/"
+      }
+    },
+    {
+      "id": "moonshotai",
+      "name": "Moonshot AI",
+      "category": "official",
+      "baseUrl": "https://api.moonshot.ai/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://platform.moonshot.ai/docs/api/chat",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://platform.kimi.ai/console/api-keys"
+      }
+    },
+    {
+      "id": "kimi-for-coding",
+      "name": "Kimi Code Membership",
+      "category": "official",
+      "baseUrl": "https://api.kimi.com/coding/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://www.kimi.com/code/docs/en/",
+      "portal": {
+        "kind": "console",
+        "url": "https://www.kimi.com/code/console"
+      }
+    },
+    {
+      "id": "zai",
+      "name": "Z.AI",
+      "category": "official",
+      "baseUrl": "https://api.z.ai/api/paas/v4",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.z.ai/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://z.ai/manage-apikey/apikey-list"
+      }
+    },
+    {
+      "id": "zai-coding-plan",
+      "name": "Z.AI Coding Plan",
+      "category": "official",
+      "baseUrl": "https://api.z.ai/api/coding/paas/v4",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://docs.z.ai/devpack/overview",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://z.ai/manage-apikey/apikey-list"
+      }
+    },
+    {
+      "id": "zhipuai-coding-plan",
+      "name": "Zhipu AI Coding Plan (China)",
+      "category": "official",
+      "baseUrl": "https://open.bigmodel.cn/api/coding/paas/v4",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://docs.bigmodel.cn/cn/coding-plan/overview",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://open.bigmodel.cn/usercenter/apikeys"
+      }
+    },
+    {
+      "id": "minimax-coding-plan",
+      "name": "MiniMax Token Plan (Global)",
+      "category": "official",
+      "baseUrl": "https://api.minimax.io/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://platform.minimax.io/docs/token-plan/intro",
+      "portal": {
+        "kind": "console",
+        "url": "https://platform.minimax.io/console/plan"
+      }
+    },
+    {
+      "id": "minimax-cn-coding-plan",
+      "name": "MiniMax Token Plan (China)",
+      "category": "official",
+      "baseUrl": "https://api.minimax.cn/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://platform.minimax.cn/docs/token-plan/intro",
+      "portal": {
+        "kind": "console",
+        "url": "https://platform.minimax.cn/console/plan"
+      }
+    },
+    {
+      "id": "stepfun-step-plan",
+      "name": "StepFun Step Plan (China)",
+      "category": "official",
+      "baseUrl": "https://api.stepfun.com/step_plan/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://platform.stepfun.com/docs/zh/step-plan/integrations/reasoning-api",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://platform.stepfun.com/interface-key"
+      }
+    },
+    {
+      "id": "stepfun-ai-step-plan",
+      "name": "StepFun Step Plan (Global)",
+      "category": "official",
+      "baseUrl": "https://api.stepfun.ai/step_plan/v1",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://platform.stepfun.ai/docs/en/step-plan/integrations/reasoning-api",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://platform.stepfun.ai/interface-key"
+      }
+    },
+    {
+      "id": "tencent-coding-plan",
+      "name": "Tencent Cloud Coding Plan (China)",
+      "category": "official",
+      "baseUrl": "https://api.lkeap.cloud.tencent.com/coding/v3",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://cloud.tencent.com/document/product/1772/128947",
+      "portal": {
+        "kind": "console",
+        "url": "https://console.cloud.tencent.com/tokenhub/"
+      }
+    },
+    {
+      "id": "tencent-token-plan",
+      "name": "Tencent Cloud Token Plan (China)",
+      "category": "official",
+      "baseUrl": "https://api.lkeap.cloud.tencent.com/plan/v3",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://cloud.tencent.com/document/product/1823/130060",
+      "portal": {
+        "kind": "console",
+        "url": "https://console.cloud.tencent.com/tokenhub/"
+      }
+    },
+    {
+      "id": "tencent-token-plan-global",
+      "name": "Tencent Cloud Token Plan (Global)",
+      "category": "official",
+      "baseUrl": "https://tokenhub-intl.tencentcloudmaas.com/plan/v3",
+      "protocols": [
+        "anthropic-messages",
+        "openai-completions"
+      ],
+      "docs": "https://intl.cloud.tencent.com/document/product/1300/81315",
+      "portal": {
+        "kind": "console",
+        "url": "https://console.tencentcloud.com/tokenhub/"
+      }
+    },
+    {
+      "id": "nvidia",
+      "name": "NVIDIA NIM",
+      "category": "official",
+      "baseUrl": "https://integrate.api.nvidia.com/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.api.nvidia.com/nim/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://build.nvidia.com/settings/api-keys"
+      }
+    },
+    {
+      "id": "cerebras",
+      "name": "Cerebras",
+      "category": "official",
+      "baseUrl": "https://api.cerebras.ai/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://inference-docs.cerebras.ai/models/overview",
+      "portal": {
+        "kind": "console",
+        "url": "https://cloud.cerebras.ai/"
+      }
+    },
+    {
+      "id": "siliconflow",
+      "name": "SiliconFlow",
+      "category": "gateway",
+      "baseUrl": "https://api.siliconflow.com/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.siliconflow.com/",
+      "portal": {
+        "kind": "console",
+        "url": "https://cloud.siliconflow.com/"
+      }
+    },
+    {
+      "id": "together",
+      "name": "Together AI",
+      "category": "gateway",
+      "baseUrl": "https://api.together.xyz/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.together.ai/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://api.together.ai/settings/api-keys"
+      }
+    },
+    {
+      "id": "fireworks",
+      "name": "Fireworks AI",
+      "category": "gateway",
+      "baseUrl": "https://api.fireworks.ai/inference/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.fireworks.ai/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://app.fireworks.ai/settings/users/api-keys"
+      }
+    },
+    {
+      "id": "poe",
+      "name": "Poe",
+      "category": "gateway",
+      "baseUrl": "https://api.poe.com/v1",
+      "protocols": [
+        "openai-responses"
+      ],
+      "docs": "https://creator.poe.com/docs/external-applications/openai-compatible-api",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://poe.com/api/keys"
+      }
+    },
+    {
+      "id": "huggingface",
+      "name": "Hugging Face",
+      "category": "gateway",
+      "baseUrl": "https://router.huggingface.co/v1",
+      "protocols": [
+        "openai-responses"
+      ],
+      "docs": "https://huggingface.co/docs/inference-providers",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://huggingface.co/settings/tokens"
+      }
+    },
+    {
+      "id": "novita-ai",
+      "name": "Novita AI",
+      "category": "gateway",
+      "baseUrl": "https://api.novita.ai/openai",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://novita.ai/docs/guides/introduction",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://novita.ai/settings/key-management"
+      }
+    },
+    {
+      "id": "qiniu-ai",
+      "name": "Qiniu AI",
+      "category": "gateway",
+      "baseUrl": "https://api.qnaigc.com/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://developer.qiniu.com/aitokenapi",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://portal.qiniu.com/ai-inference/api-key"
+      }
+    },
+    {
+      "id": "digitalocean",
+      "name": "DigitalOcean Gradient AI",
+      "category": "gateway",
+      "baseUrl": "https://inference.do-ai.run/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.digitalocean.com/products/gradient-ai-platform/details/models/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://cloud.digitalocean.com/model-studio/manage-keys"
+      }
+    },
+    {
+      "id": "modelscope",
+      "name": "ModelScope",
+      "category": "gateway",
+      "baseUrl": "https://api-inference.modelscope.cn/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://modelscope.cn/docs/model-service/API-Inference/intro",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://modelscope.cn/my/myaccesstoken"
+      }
+    },
+    {
+      "id": "scaleway",
+      "name": "Scaleway Generative APIs",
+      "category": "gateway",
+      "baseUrl": "https://api.scaleway.ai/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://www.scaleway.com/en/docs/generative-apis/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://console.scaleway.com/iam/api-keys"
+      }
+    },
+    {
+      "id": "nebius",
+      "name": "Nebius Token Factory",
+      "category": "gateway",
+      "baseUrl": "https://api.tokenfactory.nebius.com/v1",
+      "protocols": [
+        "openai-responses"
+      ],
+      "docs": "https://docs.tokenfactory.nebius.com/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://tokenfactory.nebius.com/settings/api-keys"
+      }
+    },
+    {
+      "id": "requesty",
+      "name": "Requesty",
+      "category": "gateway",
+      "baseUrl": "https://router.requesty.ai/v1",
+      "protocols": [
+        "openai-responses"
+      ],
+      "docs": "https://docs.requesty.ai/",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://app.requesty.ai/api-keys"
+      }
+    },
+    {
+      "id": "baseten",
+      "name": "Baseten",
+      "category": "gateway",
+      "baseUrl": "https://inference.baseten.co/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.baseten.co/inference/model-apis/overview",
+      "portal": {
+        "kind": "api-key",
+        "url": "https://app.baseten.co/settings/api_keys"
+      }
+    },
+    {
+      "id": "wandb",
+      "name": "Weights & Biases",
+      "category": "gateway",
+      "baseUrl": "https://api.inference.wandb.ai/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.wandb.ai/inference",
+      "portal": {
+        "kind": "console",
+        "url": "https://forge.coreweave.com/wandb/settings"
+      }
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama",
+      "category": "local",
+      "baseUrl": "http://localhost:11434/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.ollama.com/",
+      "portal": {
+        "kind": "setup",
+        "url": "https://docs.ollama.com/openai"
+      }
+    },
+    {
+      "id": "lm-studio",
+      "name": "LM Studio",
+      "category": "local",
+      "baseUrl": "http://localhost:1234/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://lmstudio.ai/docs/developer",
+      "portal": {
+        "kind": "setup",
+        "url": "https://lmstudio.ai/docs/developer"
+      }
+    },
+    {
+      "id": "vllm",
+      "name": "vLLM",
+      "category": "local",
+      "baseUrl": "http://localhost:8000/v1",
+      "protocols": [
+        "openai-completions"
+      ],
+      "docs": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server/",
+      "portal": {
+        "kind": "setup",
+        "url": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server/"
+      }
+    },
+    {
+      "id": "custom",
+      "name": "Custom Provider",
+      "category": "custom",
+      "baseUrl": null,
+      "protocols": [
+        "openai-responses"
+      ],
+      "docs": null,
+      "portal": null
+    }
+  ]
+}

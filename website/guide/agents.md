@@ -1,154 +1,37 @@
 # 支持的 Agent
 
-MUX 的 Agent 数据分为两层：
+下表来自 MUX 发布版的核验目录与 Core 能力输出，支持按名称、准确 ID 和能力搜索。不同产品形态保留独立身份；名称相同的条目通过 CLI、Desktop、IDE 或 Plugin 区分。
 
-- **核验定义**：`data/agents.json` 保存逐项核验的配置契约；仅有已确认全局路径和格式的 MCP 可写，其余按已核验 Skills 或原生配置引导展示。
-- **发现目录**：来自公开 MCP 客户端目录与官方客户端矩阵，只作为后续核验的数据储备。完整清单以 `data/agent-catalog.json` 为准，与核验定义按身份合并，不再作为单独标签页展示。
+<AgentReference />
 
-对于 MCP 能力，没有确认全局文件路径、顶层键和条目结构的客户端只保留来源数据，不会成为 MCP 可写目标。Skills-only Agent 只有在用户级目录契约另行核验后才会出现。这样可以持续扩大覆盖面，又不会把通用 JSON 猜测写进未知产品配置。
+## 能力口径
 
-桌面端把 MCP、Model 与 Skill 都视为中央资产：先在顶部 `MCPs`、`Models`、`Skills` 工作区统一创建、导入和维护，再由 Agent 建立消费关系。单个 Agent 页面使用 **MCPs → Model → Skills** 三个标签，只展示该 Agent 期望使用的中央资产；这里不会创建 MCP、填写 Model、解析 Skill 来源或重新安装 Skill。
+MCP 路径、Skills 目录和 Models 能力分别核验，不能从其中一项推断另一项。没有已确认路径与原生格式的入口不提供写入。发现目录只是后续核验的候选，不代表所有产品都能自动配置。
 
-消费关系可在 Agent 页面或统一 CLI 中管理：MCP 与 Skills 每个 Agent 可选择多个；原生多模型 Agent 可分配多个 Profile、最多一个 current，单模型 Agent 仍最多一个。中央资产详情只负责资产生命周期和只读影响范围，不反向修改 Agent。MUX 再把 Agent 文件或 Skill link 作为 observed state 对账；仅在 Agent 中发现的外部配置保持只读，扫描不会静默接管。检测到历史 MCP / Skill 时，可显式纳管并把中央资产与原有消费关系作为同一项可恢复事务导入。
+- MCP 列展示已确认的用户级全局配置。
+- Skills 列展示主要用户级目录；兼容读取目录与共享目标在实际操作计划中列出。
+- Models 显示自动配置或官方引导。协议、当前模型与凭据限制见 [Models](/guide/models)。
 
-Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder、Kimi Code CLI/Desktop 保留为 guided target，其他已核验 writer 可管理中央 Model Profile。
+## 共享配置与不同入口
 
-## 已核验列表
+**Codex CLI 与桌面入口**共享 Codex 配置与用户级 Skills，Model writer 由 CLI 身份管理。**Cursor IDE 与 CLI**共享 MCP / Skills；启动入口不同，实际文件影响合并展示。
 
-2026-10-04 新增 Cline CLI、Kiro CLI、Junie CLI、Goose Desktop、Kilo Code VS Code、Codex IDE、MiMoCode、DeepSeek Harness、jcode、Jan Desktop / Jan Agent、AnythingLLM 与 IBM Bob。当前核验定义 88 个：73 个有 MCP 文件契约、68 个有用户级 Skills 目录，共享配置的产品形态分别计数。新入口开放 12 个 MCP 与 11 个 Skills 能力；DeepSeek Harness 当前仅分配 Skills，AnythingLLM 和 IBM Bob 当前仅管理 MCP。
+**OpenCode CLI 与 Desktop**共享原生配置，均可管理 Models。**Qoder IDE**使用独立 MCP 文件；**Qoder Desktop 与 CLI**共享 settings，Models 的选择规则不同。**QoderWork**有独立用户配置。不要仅按显示名称判断目标。
 
-新身份不自动复制 Model writer。共享后端的 Models 继续通过已核验入口或客户端配置管理；CLI 与桌面是否能使用相同凭据仍需单独核验。发现目录中的产品不因已发布或支持 ACP 而自动升级为可写目标。
+共享文件或目录的修改会展示全部受影响 Agent，不会把同一份文件当成互不相关的目标。
 
-以下结果基于截至 **2026-10-04** 的官方文档、官方源码或签名应用包；Grok Build 使用 xAI 官方文档核验，MiniMax Code 使用官方签名的 `3.0.51` macOS 应用包核验。
+## 安装与版本
 
-下表聚焦 MCP 契约：列出已核验可写目标，并保留 Devin、Cline Desktop 与 Freebuff 作为明确的只读对照；Skills-only 定义见下方 Skills 能力与 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
+运行时检测与“配置文件已经存在”分开显示。macOS 应用从包信息读取版本；已核验的默认 CLI 通过限时版本查询检测，自定义 CLI 不会被自动执行。
 
-新 Qoder Desktop 的 MCP 契约于 2026-09-05 按新版官方文档核验。
-
-| Agent | 格式 | 配置键 | 用户级全局路径 | 原生传输 |
-|---|---|---|---|---|
-| [Agentkube](https://agentkube.mintlify.app/agents/mcp) | JSON | `mcpServers` | `~/.agentkube/mcp.json` | stdio / http |
-| [Amp](https://ampcode.com/manual#model-context-protocol-mcp) | JSON | `amp.mcpServers` | `~/.config/amp/settings.json` | stdio / http |
-| [Amazon Q Developer IDE](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/mcp-ide.html) | JSON | `mcpServers` | `~/.aws/amazonq/default.json` | stdio / http |
-| [Antigravity](https://antigravity.google/docs/mcp) | JSON | `mcpServers` | `~/.gemini/config/mcp_config.json` | stdio / http |
-| [Augment Code](https://docs.augmentcode.com/cli/integrations) | JSON | `mcpServers` | `~/.augment/settings.json` | stdio / http |
-| [BoltAI](https://docs.boltai.com/docs/plugins/mcp-servers) | JSON | `mcpServers` | `~/.boltai/mcp.json` | stdio |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/mcp) | JSON | `mcpServers` | `~/.claude.json` | stdio / http |
-| [Claude](https://modelcontextprotocol.io/quickstart/user) | JSON | `mcpServers` | `~/Library/Application Support/Claude/claude_desktop_config.json` | stdio |
-| [ChatMCP](https://github.com/daodao97/chatmcp) | JSON | `mcpServers` | `~/Library/Application Support/ChatMcp/mcp_server.json` | stdio / http |
-| [Cline](https://docs.cline.bot/mcp/configuring-mcp-servers) | JSON | `mcpServers` | `~/.cline/data/settings/cline_mcp_settings.json` | stdio / http |
-| [Cline Desktop](https://cline.bot/desktop) | - | - | 只读目录 | - |
-| [CodeBuddy Code](https://www.codebuddy.ai/docs/cli/mcp) | JSON | `mcpServers` | `~/.codebuddy/.mcp.json` | stdio / http |
-| [WorkBuddy AI](https://www.workbuddy.ai/docs/) | JSON | `mcpServers` | `~/.workbuddy-ai/mcp.json` | stdio / http / sse |
-| [WorkBuddy](https://www.workbuddy.cn/docs/) | JSON | `mcpServers` | `~/.workbuddy/mcp.json` | stdio / http / sse |
-| [CodeWhale](https://github.com/Hmbown/CodeWhale/blob/main/docs/MCP.md) | JSON | `servers` | `~/.codewhale/mcp.json` | stdio / http |
-| [Codex CLI](https://developers.openai.com/codex/mcp) | TOML | `mcp_servers` | `~/.codex/config.toml` | stdio / http |
-| [ChatGPT](https://developers.openai.com/codex) | TOML | `mcp_servers` | `~/.codex/config.toml` | stdio / http |
-| [Continue](https://docs.continue.dev/customize/deep-dives/mcp) | YAML | `mcpServers` | `~/.continue/config.yaml` | stdio / http |
-| [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/extend-coding-agent-with-mcp) | JSON | `mcpServers` | `~/.copilot/mcp-config.json` | stdio / http |
-| [Crush](https://github.com/charmbracelet/crush#model-context-protocol-mcp) | JSON | `mcp` | `~/.config/crush/crush.json` | stdio / http |
-| [Cursor](https://docs.cursor.com/context/model-context-protocol) | JSON | `mcpServers` | `~/.cursor/mcp.json` | stdio / http |
-| [Cursor CLI](https://cursor.com/docs/cli/overview) | JSON | `mcpServers` | `~/.cursor/mcp.json` | stdio / http |
-| [Devin](https://docs.devin.ai/work-with-devin/mcp) | - | - | 只读目录 | - |
-| [Factory Droid](https://docs.factory.ai/cli/configuration/mcp) | JSON | `mcpServers` | `~/.factory/mcp.json` | stdio / http |
-| [Firebender](https://docs.firebender.com/context/mcp/overview) | JSON | `mcpServers` | `~/.firebender/firebender.json` | stdio / http |
-| [Freebuff](https://freebuff.com/) | - | - | 只读目录 | - |
-| [Gemini CLI](https://geminicli.com/docs/tools/mcp-server/) | JSON | `mcpServers` | `~/.gemini/settings.json` | stdio / http |
-| [Goose](https://goose-docs.ai/docs/guides/config-files/) | YAML | `extensions` | `~/Library/Application Support/Block/goose/config/config.yaml` | stdio / http |
-| [Grok Build](https://docs.x.ai/build/features/mcp-servers) | TOML | `mcp_servers` | `~/.grok/config.toml` | stdio / http |
-| [Hermes Agent](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/mcp.md) | YAML | `mcp_servers` | `~/.hermes/config.yaml` | stdio / http |
-| [JetBrains Junie](https://www.jetbrains.com/help/junie/model-context-protocol-mcp.html) | JSON | `mcpServers` | `~/.junie/mcp/mcp.json` | stdio / http |
-| [Kilo Code CLI](https://kilo.ai/docs/automate/mcp/using-in-kilo-code) | JSON | `mcp` | `~/.config/kilo/kilo.jsonc` | stdio / http |
-| [Kimi Code CLI](https://www.kimi.com/code/docs/en/kimi-code-cli/customization/mcp.html) | JSON | `mcpServers` | `~/.kimi-code/mcp.json` | stdio / http |
-| [Kimi Code](https://www.kimi.com/code/docs/en/kimi-code-desktop/getting-started.html) | JSON | `mcpServers` | `~/.kimi-code/mcp.json` | stdio / http / sse |
-| [Kiro](https://kiro.dev/docs/mcp/configuration/) | JSON | `mcpServers` | `~/.kiro/settings/mcp.json` | stdio / http |
-| [LM Studio](https://lmstudio.ai/docs/app/plugins/mcp) | JSON | `mcpServers` | `~/.lmstudio/mcp.json` | stdio / http |
-| [MiniMax Code](https://agent.minimax.io/download) | JSON | `mcpServers` | `~/.mavis/mcp.json` | stdio / http |
-| [Mistral Vibe](https://docs.mistral.ai/vibe/code/cli/mcp-servers) | TOML | `mcp_servers` | `~/.vibe/config.toml` | stdio / http |
-| [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
-| [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
-| [OpenHands CLI](https://docs.openhands.dev/openhands/usage/cli/mcp-servers) | JSON | `mcpServers` | `~/.openhands/mcp.json` | stdio / http |
-| [Pi Coding Agent](https://pi.dev/docs/latest/mcp) | JSON | `mcpServers` | `~/.pi/agent/mcp.json` | stdio / http |
-| [Qoder](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/.qoder/mcp.json` | stdio / http |
-| [Qoder](https://docs.qoder.com/qoder/connectors) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
-| [Qoder CLI](https://docs.qoder.com/en/cli/mcp-servers) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
-| [QoderWork](https://docs.qoder.com/qoderwork/connectors) | JSON | `mcpServers` | `~/.qoderwork/mcp.json` | stdio / http |
-| [Qwen Code](https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/) | JSON | `mcpServers` | `~/.qwen/settings.json` | stdio / http |
-| [Roo Code](https://docs.roocode.com/features/mcp/using-mcp-in-roo) | JSON | `mcpServers` | `~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json` | stdio / http |
-| [Atlassian Rovo Dev CLI](https://support.atlassian.com/rovo/docs/connect-to-an-mcp-server-in-rovo-dev-cli/) | JSON | `mcpServers` | `~/.rovodev/mcp.json` | stdio / http |
-| [Stakpak](https://github.com/stakpak/agent#mcp-proxy-server) | TOML | `mcpServers` | `~/.stakpak/mcp.toml` | stdio / http |
-| [Step Code](https://platform.stepfun.com/docs/zh/step-code/customization/mcp) | TOML | `mcp_servers` | `~/.stepcode/config.toml` | stdio / http |
-| [Tabnine](https://docs.tabnine.com/main/getting-started/tabnine-agent/mcp-intro-and-setup) | JSON | `mcpServers` | `~/.tabnine/mcp_servers.json` | stdio / http |
-| [Visual Studio Code](https://code.visualstudio.com/docs/copilot/chat/mcp-servers) | JSON | `servers` | `~/Library/Application Support/Code/User/mcp.json` | stdio / http |
-| [VT Code](https://github.com/vinhnx/VTCode/blob/main/docs/guides/mcp-integration.md) | TOML | `mcp.providers` | `~/.vtcode/vtcode.toml` | stdio / http |
-| [Warp](https://docs.warp.dev/knowledge-and-collaboration/mcp) | JSON | `mcpServers` | `~/.warp/.mcp.json` | stdio / http |
-| [Windsurf](https://docs.windsurf.com/windsurf/cascade/mcp) | JSON | `mcpServers` | `~/.codeium/windsurf/mcp_config.json` | stdio / http |
-| [Zed](https://zed.dev/docs/ai/mcp) | JSON | `context_servers` | `~/.config/zed/settings.json` | stdio / http |
-
-### 需要特别区分的目标
-
-- **已安装版本**：Agent 页面根据实际启动入口显示“已安装”和检测到的版本。macOS App 从应用包读取版本；内置 CLI 的默认命令使用限时 `--version` 探测。自定义 CLI 不会被自动执行以探测版本。IDE 插件如 Cline、Amazon Q 显示的是 VS Code 宿主版本；取不到版本时仍显示“已安装”。CLI 可用 `mux agent launch show <agent-id>` 查询同一版本字段。
-- **Pi**：0.99.0 起原生支持 MCP，MUX 管理官方的用户级 `mcp.json`，识别并保留 `enabled`、工具暴露和超时等原生策略；不写项目级文件。低于 0.99.0 的 Pi 需要社区适配器；若适配器覆盖 `/mcp`，新版 Pi 会暂停使用内置 MCP，请先按 [官方说明](https://pi.dev/docs/latest/mcp) 处理。运行中的会话需 `/reload`。
-- **Devin / Cline Desktop / Freebuff**：产品提供 Agent 能力，但没有核验到稳定的用户级全局文件契约，因此只提供目录展示和启动入口，不提供配置写入。
-- **QoderWork**：用户自定义 MCP 保存在 `~/.qoderwork/mcp.json`，使用 `mcpServers`；MUX 不修改客户端数据目录中的内置 MCP。远程连接按官方导入格式写为 `streamable-http` 或 `sse`。
-- **Qoder / CLI / Desktop**：三个独立入口。IDE（原 `qoder`）继续使用 `~/.qoder/mcp.json`；新 Desktop（`qoder-desktop`，0.1.x）与 CLI（`qoder-cli`）共用 `~/.qoder/settings.json`，修改同名 MCP 会影响两者。Desktop 0.1.8 的自定义 Models 可由 MUX 写入同文件的 `providers`，重启后在会话中选用；CLI 1.1.50+ 同样支持自动写入自定义 Models，并通过 `model.name` 切换当前模型；新版 Desktop Skills 的本地写入契约尚未核验。
-- **入口类型**：添加 Agent 时只选择 CLI、Desktop、IDE、Plugin。启动设置沿用这个类型，只改程序、参数和工作目录，不能再改成另一种入口。没有 Web 类型。
-- **Codex CLI / Desktop**：两个独立入口。Desktop 打开 `/Applications/ChatGPT.app`。两边共用 `~/.codex/config.toml` 与 `~/.agents/skills`。模型 writer 在 Codex CLI 上，写入同一份配置。
-- **Cursor IDE / CLI**：两个独立启动入口，但共用 `~/.cursor/mcp.json` 与 `~/.cursor/skills`；Cursor CLI 当前使用 `agent` 命令，MUX 同时兼容旧版 `cursor-agent`。因此 MCP 与 Skills 的物理文件影响会合并显示，启动与 Agent 身份仍保持分开；Models 和 API 凭据继续由 Cursor 自身管理。
-- **Claude / BoltAI**：列出的本地文件只原生支持 stdio。远程 MCP 分别由 Claude Connectors 或 BoltAI 的 `mcp-remote` 方案管理。
-- **Goose**：通用文档示例使用 `~/.config/goose/config.yaml`，当前 macOS 源码实际采用 `~/Library/Application Support/Block/goose/config/config.yaml`；MUX 按运行时代码定位。
-- **Grok Build**：MCP 与自定义模型共用 `~/.grok/config.toml`。MUX 分别局部管理 `mcp_servers`、`[models].default` 和独立的 MUX 模型表，支持三种官方 API backend，并保留其他模型、认证、超时、权限和工具策略。认证只写 `env_key` 变量名，不写密钥正文。
-- **Step Code**：2026-09-23 按阶跃星辰官方文档核验。MCP 只写 `~/.stepcode/config.toml` 的 `mcp_servers`，远程连接使用 `url` 与 `http_headers`，不写旧 SSE。`auth.json` 与 `models.json` 继续由 Step Code 管理。Skills 首选 `~/.stepcode/agent/skills`，并兼容读取 `~/.agents/skills`。启动使用 `~/.stepcode/bin/step`，不探测裸 `step` 命令。
-- **MiniMax Code**：主配置与 MCP 配置分离，分别是 `~/.mavis/config.yaml` 和 `~/.mavis/mcp.json`。MUX 可安全管理 `mcpServers`；Models 只提供引导，因为当前自定义 provider 会把 `options.apiKey` 明文写入 YAML。
+插件宿主可以启动，不代表插件已经安装。未确认的信息保持未知。CLI 可用 `mux agent launch show <agent-id> --json` 查看同一套启动与版本信息。
 
 ## Skills 能力
 
-Skills 路径与上表的 MCP 配置路径分别核验，不能互相推断。当前为 **68 个**具有稳定 user-level 契约的已审计 Agent 声明 Skills 能力；运行时只显示本机安装探针命中的 Agent。没有公开稳定用户级目录、只有项目级目录或仅提供 rules/prompts 的产品继续保持只读或不接入 Skills writer。
+Skills 仅分配到明确核验的用户级目录。只有当前机器实际可用的目标参与操作；多个 Agent 共用一个目录时，会作为同一影响组处理。Codex 的主要目录是 `~/.agents/skills`，不能把其他产品文档列出的兼容目录直接当成 Codex 的写入契约。
 
-Skills 分配按物理目录而不是 Agent 名称执行。Cursor IDE 与 Cursor CLI 共用 `~/.cursor/skills`，并可读取 `~/.agents/skills` 兼容目录；后者现在同时是 Codex、Goose、Warp 与 Zed 的首选目录，也是多个 Agent 的兼容读取目录，因此一次写入可能影响更多已安装产品。MUX 会在审阅页展示真实影响并归一化重复链接。链接指向同一份可写中央内容，消费者侧修改会形成中央 drift；路径矩阵、安装来源、后台安全校验和当前边界见 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
+## 只读与官方引导
 
-## 不同 Agent 的格式差异
+没有稳定用户级配置文件契约的产品保持只读或提供原生设置指导。Pi 的原生 MCP 契约适用于 0.99.0+；更早版本需其对应扩展。Claude 桌面端的本地 MCP 文件只接收 stdio，远程连接由客户端的 Connectors 管理。
 
-MUX 不把所有客户端都当成同一种 `mcpServers` JSON：
-
-- OpenCode / Kilo 使用 `type: local|remote`，本地 `command` 是数组。
-- Codex 使用 TOML 表和 `http_headers`；Grok Build 使用 `mcp_servers` TOML 表和 `headers`；Mistral Vibe 使用 `[[mcp_servers]]` TOML 列表。
-- Continue 使用 YAML 列表并要求根级 `name`、`version`、`schema`；Goose 和 Hermes 也使用各自的 YAML map。
-- Gemini / Qwen 使用 `httpUrl`；Windsurf 和 Antigravity 使用 `serverUrl`。
-- Cline 把连接字段放在 `transport` 子对象；Tabnine 把 HTTP 头放在 `requestInit.headers`。
-- Rovo、Amazon Q、Augment、OpenHands 等要求显式传输类型；Kimi / Hermes 只在旧 SSE 时写 `transport: sse`。
-
-每个内置目标有独立 codec。升级时，MUX 会更新官方 schema 元数据，但保留用户对启用状态和全局路径的选择。
-
-## 安全写入边界
-
-MUX 会在本机解析 Agent 文件，但只把目标 MCP 条目的结构化连接字段提供给界面。完整配置文件不会进入界面、日志、来源缓存或网络，也不会通过“反序列化整份再重写”的方式覆盖用户配置。
-
-- JSON / JSONC 使用语法树定位目标条目，保留注释、缩进、键顺序、其它 server 和其它顶层设置。
-- TOML map 与 TOML list 都做局部编辑；YAML map / list 同样保留未受管内容和注释。
-- `enabled`、OAuth、超时、工具白名单、审批策略等 Agent 私有字段原样保留。
-- ChatMCP 文件只要包含 OAuth、token 或 client secret，MUX 就把整个文件视为外部管理并在备份前拒绝写入；敏感条目不会进入 MUX inventory 或备份。
-- 无效文档、错误节点类型、重复目标键、YAML 多文档、备份失败或并发修改都会拒绝写入。
-- 写前创建独立时间戳备份（Unix 下目录 `0700`、文件 `0600`），最终通过同目录临时文件原子替换；符号链接目标和原配置文件权限保持不变。
-
-MUX 当前只管理用户级全局配置，不提供项目级写入。
-
-## 自定义 Agent
-
-桌面 App 的 Agent 选择器旁点 `+`，或在 TUI 的 Agents 屏幕按 `n`，可添加 JSON、TOML 或 YAML 的自定义全局目标。自定义目标使用标准 map 布局；只有已核验内置目标会启用产品专属字段转换。内置目标只允许覆盖路径，避免把官方 schema 意外改成不兼容格式。
-
-下一步 → [常见问题](/guide/faq)
-
-## Kimi Code
-
-2026-09-17 按官方文档与 Desktop 1.0.1 安装包核验。`kimi-code-desktop` 与 `kimi-code` 是独立身份，共用 MCP 文件和 Skills 目录；同一物理配置上的变更会影响两者，MUX 复用共享目标冲突保护。新增 MCP 后需创建新会话。
-
-用户级 Skills 为 `~/.kimi-code/skills`，也读取 `~/.agents/skills`。若客户端设置 `KIMI_CODE_HOME`，请在 MUX Agent 配置中同步修改 MCP 和 Skills 路径。MUX 不修改项目配置、插件目录、OAuth 凭据或会话。
-
-Models 提供原生配置引导：Desktop 在 Settings → Providers 添加，CLI 使用 `/provider`。两者默认共用 `~/.kimi-code/config.toml`；`api_key` 与 `providers.env` 都是明文值，不是环境变量引用，当前不自动导出 MUX Keychain 密钥。
-
-## OpenCode
-
-OpenCode CLI 与 Desktop 共用本机全局配置和 Skills 目录。Desktop 启动 `OpenCode.app`；修改全局默认模型会影响两端，远程服务配置需要在服务所在主机管理。
-
-WorkBuddy AI 的用户级 Skills 位于 `~/.workbuddy-ai/skills`，WorkBuddy 位于 `~/.workbuddy/skills`；两版独立分配资源，分别启动 WorkBuddy AI.app 和 WorkBuddy.app。MUX 通过中央库软链接分配 Skills，Models 使用各版原生配置指引。MCP 原生开关只修改 `disabled`，更新保留 `disabledTools`、`timeout` 与其他未知字段。
+核验方法与来源见仓库 [Agent Catalog](https://github.com/Scoheart/mux/blob/main/docs/agent-catalog.md)。

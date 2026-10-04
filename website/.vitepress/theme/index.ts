@@ -4,6 +4,9 @@ import DefaultTheme from "vitepress/theme";
 import { useRoute } from "vitepress";
 import Layout from "./Layout.vue";
 import MuxHomeSections from "./components/MuxHomeSections.vue";
+import AgentReference from "./components/AgentReference.vue";
+import ProviderReference from "./components/ProviderReference.vue";
+import MuxDemo from "./components/MuxDemo.vue";
 import { initScrollReveal } from "./scroll-reveal";
 import "./custom.css";
 
@@ -44,6 +47,9 @@ export default {
   Layout,
   enhanceApp({ app, router }: EnhanceAppContext) {
     app.component("MuxHomeSections", MuxHomeSections);
+    app.component("AgentReference", AgentReference);
+    app.component("ProviderReference", ProviderReference);
+    app.component("MuxDemo", MuxDemo);
     installRouteTransitions(router);
   },
   setup() {

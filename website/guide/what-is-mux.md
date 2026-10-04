@@ -1,56 +1,38 @@
 # MUX 是什么
 
-**MUX（MCP Multiplexer）** 是一款面向多 Agent 的中央资产与配置管理工具。它把 MCP、Model Profile 和用户级 Skill 统一放进中央资产库，再让 Claude Code、Codex、Cursor、QoderWork、OpenCode 等 Agent 选择消费。
+MUX 是一款 Agent 资源与配置管理工具。把 **Models、MCPs、Skills** 集中保存，再选择让哪些 CLI、桌面应用或 IDE 使用它们。桌面 App 和原生 `mux` CLI 共用 `~/.mux/` 与同一个管理核心。
 
-MUX 会适配不同 Agent 的配置路径、文件格式和字段结构，只修改自己拥有的字段，不覆盖用户的其他设置。Desktop 的 Agent 页面只管理 desired relationship；Agent 文件与 Skill link 作为 observed state 对账，不会因扫描而自动变成中央资产。
+![MUX 1.10.0 Models 资源库](/media/mux-1.10.0-models.jpg)
 
-![MUX 桌面 App 界面总览](/img/mcps-overview.png)
+## 从一份资产开始
 
-> 上图各区域详解见 [桌面 App 图文教程](/guide/desktop#界面总览)。
+| 你要管理的内容 | 在哪里创建 | 如何交给 Agent |
+|---|---|---|
+| 模型连接与模型 | Models：添加 Provider，再添加 Model | 在 Agent 的 Models 页选择兼容模型 |
+| 工具服务 | MCPs：添加、粘贴、订阅或导入配置 | 在 Agent 的 MCPs 页选择中央条目 |
+| 可重复使用的指令 | Skills：从 GitHub、本地文件夹或压缩包下载 / 导入 | 在 Agent 的 Skills 页选择中央副本 |
 
-## 它解决什么问题
+创建中央资产与让 Agent 使用它是两个步骤。一个模型、MCP 或 Skill 可以供多个兼容 Agent 使用；各 Agent 的格式、配置文件和共享目录由 MUX 适配。
 
-如果你同时用多个 AI 编码工具（Claude Code、Cursor、VS Code、Codex、Zed……），每个工具都有自己的一份 MCP 配置文件，格式、路径、字段各不相同。给它们都配上同一个 MCP（比如 `filesystem`、`github`、`context7`），你得：
+## 日常使用
 
-- 找到每个工具的配置文件路径；
-- 用它各自的格式（JSON / TOML / YAML）、各自的键名和 map/list 布局写一遍；
-- 想改一个 server 的参数，又得挨个改回去。
+1. 在顶部选择 Models、MCPs 或 Skills，整理中央资产。
+2. 打开 Agent 选择器，选择你使用的客户端。
+3. 在对应标签页添加中央资产；需要时启用、停用或切换当前模型。
+4. 出现外部改动时，查看差异，再选择采用外部内容、恢复 MUX 配置或解除管理。
 
-MUX 把这些 MCP 收进 **一个目录（Registry）**，并用同一种产品逻辑管理 Model 与 Skill：**中央配置一次 → 选择消费者 → 审阅影响 → 事务写入并验证**。MCP 和 Skill 每个 Agent 可消费多个；原生多模型 Agent 也可分配多个 Model Profile，但最多一个是 current，单模型 Agent 仍限制为最多一个。
+普通操作直接执行并反馈结果。删除、覆盖本地内容和高风险 Skill 等需要审阅时，会集中显示一次确认。
 
-## 两个前端，一份数据
+## 桌面与自动化
 
-MUX 有两个界面，它们**共享同一个数据目录 `~/.mux/`**：
+桌面端提供资源卡片、来源导航、Agent 启动与版本信息，以及本地会话 Trace。CLI 可以管理同样的中央资产和关系，也可以批量读取 Agent 状态，把一份操作计划交给人或其他 Agent 审阅，再在同一进程执行。
 
-| | 说明 |
-|---|---|
-| **桌面 App** | macOS 应用（Tauri + React）。可视化管理，适合鼠标操作。 |
-| **命令行 / TUI** | 原生 Rust 二进制 `mux`。子命令可统一管理三类资产的消费关系；无参数时进入聚焦 MCP 的终端工作区。 |
+无参数的 TUI 聚焦 MCP 管理；它与完整 CLI 的覆盖范围不同。详见 [CLI / TUI](/guide/cli)。
 
-因为两者都构建在**同一个 Rust 核心 crate（`mux-core`）**之上，数据模型只存在一处。你在桌面里的改动，命令行刷新后可见，反之亦然。
+## 配置与同步
 
-## 核心思路：中央资产与消费关系
+MUX 保留无关设置、注释和策略字段。扫描到的外部配置先保持只读，不会自动纳管。中央变化先保存，再按实际配置文件或目录同步；某个目标失败时，会保留已经成功的其他目标，并记录待处理关系。
 
-MUX **不内置**一份写死的 MCP 清单。你的目录是由**来源（Sources）**拼装出来的：
+中央 API Key 保存到系统 Keychain；Agent 使用环境变量引用、读取命令或经明确审阅的原生交付方式。具体限制见 [Models](/guide/models)。
 
-- **订阅**一个远程 URL（指向一份 MCP 配置文件），MUX 抓取并缓存；
-- **导入**一个本地配置文件；
-- **手动添加** / 粘贴一个 server；
-- 在 Agent 中发现但未纳管的 MCP 只作为**只读外部状态**展示，必须显式导入才进入中央目录。
-
-目录 = 所有已启用受管来源的并集。消费关系单独记录“哪个 Agent 应该使用哪个资产”，不再由文件扫描反推。详见 [核心概念](/guide/concepts)。
-
-## 能做什么（功能一览）
-
-- **浏览目录**：搜索、按来源过滤、看每个 MCP 的传输方式、来源、被哪些 agent 使用、GitHub 仓库。
-- **管理消费者**：只在对应 Agent 页修改 desired relationship，审阅后写入（自动备份原文件）；资产详情只读展示影响。
-- **状态对账**：区分已同步、外部新增、外部修改、外部删除、无法解析、歧义与不支持；不在后台静默覆盖。
-- **级联生命周期**：中央更新传播到全部消费者；中央删除同时清理关系和受管 Agent 目标。
-- **编辑 / 粘贴**：可视化编辑 MCP 配置，或粘贴一段 `mcpServers` JSON/TOML 自动识别。
-- **事务恢复**：中央变化、关系和全部目标一起提交；崩溃重启后验证完整结果，否则从持久化快照回滚。
-- **导出生效目录**：把去重后的完整目录导出为标准 MCP JSON。
-- **来源管理**：订阅、导入、刷新、启停、删除来源。
-- **agent 管理**：新增自定义 agent、编辑其配置文件路径。
-- **自动更新**：桌面 App 与独立 CLI 都跟随最新正式版通道。
-
-下一步 → [安装](/guide/install)
+[安装 MUX](/guide/install) · [观看演示](/guide/demo) · [查看支持的 Agent](/guide/agents)

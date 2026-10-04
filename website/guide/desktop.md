@@ -1,143 +1,59 @@
 # 桌面 App 指南
 
-桌面 App 是 MUX 的可视化前端（macOS，Tauri + React），用于统一维护 MCP、Model、Skill 中央资产，并让 Agent 消费这些资产。数据位于共享的 `~/.mux/`；CLI 也可以查询和修改三类资产的 Agent 消费关系。
-
-> 还没安装？请先看 [安装](/guide/install#桌面-app-macos)。
+当前文档对应 MUX 1.10.0。桌面端维护三类中央资源，并提供 Agent 启动、版本信息、本地 Trace 和网络设置。
 
 ## 界面总览
 
-打开 App 默认进入 **MCPs**。当前主界面由以下区域组成：
+![Models 资源库与顶部导航](/media/mux-1.10.0-models.jpg)
 
-![MUX MCPs 总览：来源、目录和 Agent 入口](/img/mcps-overview.png)
-
-| 区域 | 作用 |
+| 区域 | 用法 |
 |---|---|
-| **MCPs / Models（Beta）/ Skills** | 以固定顺序在三类中央资产库之间切换，创建、导入、编辑或删除都在这里完成。 |
-| **Agent 选择器** | 搜索已核验的 Agent，包括可安全写入 MCP 的目标与符合条件的 Skills-only 目标。发现目录数据继续保留，但不占用界面标签页。 |
-| **`+`** | 新增自定义 Agent，位置紧邻 Agent 选择器。 |
-| **代理 / 主题 / 重新扫描 / 检查更新** | 配置 MUX 联网代理、切换外观、重读各 Agent 配置、手动检查正式版更新。 |
-| **筛选栏** | 按使用状态和来源过滤目录；来源区提供“添加订阅”和“导入配置”。 |
-| **目录工具栏** | 搜索、粘贴配置、导出生效配置和新建 MCP。 |
-| **资源网格** | 展示名称、传输、来源、端点、Agent 使用情况及冲突状态。 |
-| **详情面板** | 点击卡片后在右侧查看详情并执行复制、编辑、删除或分配等操作，不离开当前目录。 |
+| Models / MCPs / Skills | 切换中央资产库 |
+| 置顶 Agent 图标 | 直接进入常用 Agent；支持拖动排序 |
+| Agent 选择器 | 搜索 CLI、Desktop、IDE 与 Plugin，进入对应工作区 |
+| Trace | 查看本机 Agent 会话与工具事件 |
+| 网络 / 设置 | 配置代理、查看网络记录、管理外观和更新等偏好 |
+| 左侧导航 | 按 Provider、MCP 来源或 Skill 来源筛选 |
+| 主内容 | 搜索、添加资产、打开详情和编辑 |
 
-## 目录与覆盖关系
+## Models
 
-Registry 默认显示所有已启用来源中的**每一份副本**。同一个 `name::transport` 出现在多个来源时，优先级较高的副本生效，其余副本继续显示，不会被隐藏：
+先添加 Provider：填写 Base URL、凭据方式、服务商入口和各协议的 Endpoint Path。模型列表 URL 与协议直接显示，不藏在高级设置中。服务商入口可编辑，也能点击右侧按钮打开。
 
-- 生效副本保持普通卡片样式，不重复显示“生效”标签。
-- 被覆盖副本使用靛蓝色强调、标记 **被覆盖**，并注明“以某来源为准”。
-- 只有当前范围存在冲突时，搜索框右侧才出现 **被覆盖 N**；点击后只看被覆盖副本，再点一次恢复全部。
-- 点击左侧某个来源，会查看该来源的全部副本；“被覆盖”筛选仍只作用于当前来源。
+再添加 Model，选择 Provider、协议、Model ID 与可选 token 设置。创建后，进入 Agent 的 Models 页选择模型。多模型、当前模型和会话内选用的差别见 [Models](/guide/models)。
 
-最终可供 Agent 消费与导出的，是每个组合键优先级最高的那一份。完整规则见 [优先级](/guide/concepts#优先级-去重规则)。
+## MCPs
 
-![只看被覆盖配置](/img/shadowed-config.png)
+![MCPs 中央目录](/media/mux-1.10.0-mcps.jpg)
 
-## 卡片怎么看
+手动添加或粘贴配置，也可以订阅远程 URL、导入本地文件。来源在左侧；主区显示 MCP 名称、传输与命令或端点。重复来源中的同名同传输副本按优先级处理，被覆盖项保留可见。
 
-每张卡片包含：
-
-| 部件 | 含义 |
-|---|---|
-| 彩色头像与名称 | MCP 身份。 |
-| `STDIO` / `HTTP` | 归一化后的传输类别；`sse` 和 `streamable-http` 归入 HTTP 身份。 |
-| 来源 | Agent 名、手动添加、本地文件或订阅名称。 |
-| 端点 | stdio 启动命令或 HTTP URL，过长时截断。 |
-| 使用状态 | 绿点表示被若干 Agent 使用；灰点表示未使用。 |
-
-三类顶层资源共用同一套卡片结构：名称与状态在上，摘要和元数据居中，使用影响在底部。卡片本身只负责选择资源；资产生命周期集中在右侧详情面板，消费者只读展示。只有用户拥有的 MCP source copy 可编辑或删除；订阅与导入文件中的条目由其来源管理，仅在 Agent 文件中发现的外部配置不属于 Registry。
-
-点击卡片主体会打开详情面板；再次点击、按 `Escape` 或关闭面板即可回到完整网格。键盘用户可以用 `Tab` 聚焦卡片并按 `Enter` 或空格打开详情。
-
-## 让 Agent 消费中央资产
-
-1. 在顶部 Agent 选择器中选择一个 Agent。
-2. 在 Agent 配置中心确认 **Agent 配置文件**与 **MCP 配置文件**。两者可能是同一文件，也可能是两个独立文件；MUX 会明确标注。
-3. 在 MCPs、Model 或 Skills 标签点击“管理”，从中央资产选择器设置该 Agent 的完整 desired selection；MCPs 与 Skills 可多选，支持多模型的 Agent 也可分配多个 Model Profile，但任一时刻最多一个为 current。单模型 Agent 仍只接受一个 Profile。
-   MCP 标签还提供“移除全部 MCP”：明确确认后清空该 Agent 的受管、停用与外部 MCP，但不会删除中央资产或改动其他 Agent。
-4. 审阅关系变化、目标文件、共享 Skill target 与异常状态后提交。MUX 备份、按 Agent 原生格式写入，并重新扫描验证。
-
-Desktop 内的消费关系从 Agent 页面修改；中央资产详情不反向配置 Agent。CLI 也可用三类统一的 `assign` / `unassign` / `enable` / `disable` 命令管理同一关系。MUX 当前只管理 Agent 的用户级全局配置。
-
-![在顶部搜索可配置 Agent](/img/agent-picker.png)
-
-## 关系状态与解除使用
-
-Agent 页面只显示已建立 desired relationship 的中央资产，即使目标缺失或冲突也不会从列表消失。每项由 core 对账为：
-
-- **已同步**：desired 与 observed 一致。
-- **待同步**：关系存在，但目标尚未完成写入或需要重新同步。
-- **有漂移 / 有冲突**：受管字段被外部修改，或目标被不兼容内容占用；不会在后台静默覆盖。
-- **解除使用**：经影响计划移除该 Agent 的关系和受管目标，不删除中央资产。
-
-仅在 Agent 中扫描到的配置先显示为只读“外部配置”，不会被后台静默接管。发现新项目时，顶部显示非阻塞迁移提示；“重新扫描”菜单长期保留“迁移历史配置”入口。确认后，完全一致的 MCP / Skill 副本会合并为一个中央资产并恢复原 Agent 关系；同名不同内容保持冲突且不覆盖。中央资产删除则会先列出全部消费者，确认后原子清理所有关系、受管目标与中央记录。
-
-![QoderWork 全局配置路径与 MCP 开关](/img/qoderwork-config.png)
-
-## 编辑、粘贴与导出
-
-- **编辑**：修改用户拥有的中央条目。计划会保留关系并包含所有消费者；一次确认后同步中央资产与全部目标。
-- **外部变更收敛**：发现手工定制时不会先写中央资产再补写 Agent；每个异常关系原位提供采用外部、恢复 MUX 或解除管理。操作绑定当前 inventory revision，冲突或并发变化只阻止该操作。
-- **粘贴配置**：支持可识别的 JSON、TOML 或 YAML，解析后加入“手动添加”。
-- **导出生效配置**：工具栏下载图标导出完整的去重后目录，不只导出手动条目；CLI 对应 `mux mcp export`。
-
-新建、编辑和粘贴使用同一类固定头部与底部的编辑对话框；中央更新、删除和关系变更使用统一审阅对话框。提交期间不能通过遮罩或 `Escape` 意外关闭，失败信息保留在当前对话框中以便重试。
-
-## 来源管理
-
-来源栏顶部只有两个新增动作：
-
-- **添加订阅**：输入远程配置 URL；弹窗内的 **Mux 精选**会填入官方精选订阅。
-- **导入配置**：选择本地 JSON / TOML 配置文件。
-
-悬停来源行后，远程订阅和本地文件可刷新；非受管来源可以删除。Agent 重新扫描只更新 observed inventory，不会在后台自动生成 `discovered` 中央条目；历史配置只有在迁移页确认后才进入私有中央 source 并建立原关系。删除来源会移除其缓存与目录条目，但已有消费关系需要通过影响计划处理。
-
-![按 Mux 精选来源筛选 MCP](/img/source-filter.png)
-
-来源模型本身支持启停，TUI 的“来源”屏幕用 `Space` / `Enter` 操作。桌面来源栏当前提供筛选、刷新和删除，暂未提供启停开关。
-
-## Agent 管理
-
-- 顶部 Agent 选择器右侧的 `+` 用于新增 JSON、TOML 或 YAML 自定义 Agent。
-- Agent 页面是当前 Agent 的消费中心：资源区按 **MCPs → Model → Skills** 排列为三个标签，一次只展开一类，只显示 desired central assets、状态、配置路径和“管理”操作。
-- 点击 Agent 内的 MCP、当前 Model 或 Skill 会跳转到对应顶层工作区并打开同一资源的详情面板；选择器只列中央资产，不嵌套创建表单或 Skill 来源流程。
-- 两条路径相同时显示“同一文件”；模型设置与 MCP 位于不同文件时显示“独立 MCP 文件”。路径只用于说明配置目标，MUX 不会把完整配置内容提供给界面。
-- 进入内置 Agent 页面后可覆盖 MCP 全局路径与配置键；官方格式、布局和 codec 仍由核验目录锁定，避免产生不兼容配置。
-- 位于用户主目录内的路径保存为 `~/…`；主目录外的绝对路径保持原值。
-
-MUX 当前有 57 个核验定义、47 个 MCP 可写目标、45 个 Skills 目标和 17 个 Model target（13 个 managed、4 个 guided）；201 条发现目录记录与核验定义合并后共有 212 个唯一 identity。完整口径见 [支持的 Agent](/guide/agents)。
-
-## Models（Beta）
-
-顶部 **Models** 页面与 MCPs 使用同一套筛选栏、搜索、资源卡片和右侧详情面板。创建 Profile 只保存中央资产；之后在 Agent 页查看已分配、已启用和 current 状态。原生多模型 Agent 可以保留多个 Profile，但最多一个 current；单模型 Agent 仍限制为最多一个。编辑会传播到全部消费者，删除会级联清理关系和受管目标。API Key 的中央副本保存在 macOS Keychain，且不会进入 `~/.mux/settings.json`、计划、预览或备份；Claude Desktop 的已审阅直连例外会把所选 Key 写入其 MUX 专属 `0600` Profile。
-
-Claude Desktop 与 Claude Code 目前只接收 Anthropic Messages 配置，Codex 使用 Responses API，Grok Build 与 Pi 支持三种首批协议；OpenCode 与 Kilo 额外支持 Gemini 原生 GenerateContent。Claude Desktop 会在审阅后创建一个 MUX 专属直连 Profile；Grok Build 通过官方 `env_key` 使用外部环境变量，MUX 不把 Keychain 密钥明文写入 TOML；Qoder 和 MiniMax Code 仍显示安全设置入口。完整边界见 [模型接口](/guide/models)。
+添加服务不会自动启动它。把中央条目分配到 Agent 后，由对应 Agent 加载服务。
 
 ## Skills
 
-顶部 **Skills** 工作区从公开 GitHub 直接下载，或从本地文件夹、Skill 压缩包直接导入，只写一份中央副本，不再弹出安装审核。然后从 Agent 页单独管理消费关系，把中央副本链接到已核验目录；共享一个物理 target 的 Agent 作为不可拆分组一起选择。Agent 页面不出现来源解析、安装或编辑流程。
+![Skills 来源导航与卡片](/media/mux-1.10.0-skills.jpg)
 
-Skills 当前不依赖系统 Git、Node.js 或 `npx`，也不支持项目级内容或私有仓库。CLI 提供 `skill list/show/status/assign/unassign/enable/disable/converge`；无参数 TUI 仍聚焦 MCP。下载、导入、共享 alias 和备份恢复说明见 [用户级 Skills](/guide/skills)。
+左侧按 GitHub 仓库、本地文件夹、压缩包与导入来源分类。右侧每个 Skill 是一张卡片，包含名称、最多三行简介和 Agent 图标。
 
-## 自动更新与 CLI
+Agent 图标以小扇形叠放，悬停或键盘聚焦展开；点击图标进入相应 Agent。卡片详情显示中央内容、实际副本、来源、风险与更新状态。详见 [Skills](/guide/skills)。
 
-顶部网络图标用于配置 MUX 的全局代理。支持 `http://`、`socks4://`、`socks4a://` 和 `socks5://` 地址；保存后，后续 GitHub Skills、远程来源、CLI 更新和 Desktop 更新检查统一使用该代理，留空保存即关闭。当前不支持 `https://` 代理服务器、`socks5h://` 或代理凭据，避免把用户名和密码写入 `~/.mux/settings.json`。
+## Agent 工作区
 
-- App 启动约 2.5 秒后静默检查最新**正式版**；失败不会打断使用。
-- 顶部 **检查更新 vX.Y.Z** 可随时手动检查，并在失败时显示错误。
-- 下载在后台进行；完成后可立即重启或下次启动时生效。
-- 正式版 App 自带 CLI，并在启动后维护 `~/.local/bin/mux` 软链。详见 [安装](/guide/install#方式一随桌面-app-安装推荐)。
+进入 Agent 后，按 MCPs、Models、Skills 标签选择已有中央资产。这里不重复创建 Provider、下载 Skill 或填写新的 MCP。
 
-## 写入保证
+启动区显示检测到的运行时与版本；CLI 可以选择工作目录和终端，桌面应用通过系统启动器打开。**编辑配置**可以修改启动设置和已核验的配置位置，**配置**展开当前能力的路径与文档。
 
-- 修改已有 Agent 配置前，先把原文件独立备份到 `~/.mux/backups/`；备份失败则停止该目标。
-- 使用原子替换和并发修改检查，避免半写文件或覆盖 Agent 同时产生的新改动。
-- 增删目标 server 时，只修改 MCP 节点，不读取到界面或返回完整 Agent 配置。
-- 更新已有 server 时只改受管连接字段，保留其权限、OAuth、工具策略等专属字段。
-- ChatMCP 文件只要包含 OAuth、token 或 client secret，就在备份前整文件拒绝写入，敏感条目不会进入 MUX inventory 或备份。
-- 保留其它顶层键、其它 server、注释、缩进和键顺序；JSON、TOML 或 YAML 结构不合法或有歧义时拒绝写入。
-- `~/.mux/settings.json` 使用临时文件加重命名的原子写入。
-- 模型接口同样只修改各 Agent 的受管模型字段；Pi 的两个文件作为事务写入，第二步失败会回滚第一步。
+Agent 选择器保留卡片扇形布局；左右切换有连续的过渡动画，也遵守系统的减少动画偏好。
 
-命令行可统一查询并管理 MCP、Model、Skill 的 Agent 消费关系；无参数 TUI 聚焦 MCP 兼容性管理 → [命令行 / TUI](/guide/cli)。
+## 外部改动与必要确认
+
+外部新增、修改、删除先显示为观测状态。查看当前可用的采用、恢复或解除管理动作，再处理准确的关系。已有外部定制不会被普通重新分配隐式覆盖。
+
+普通添加、停用和低风险更新直接反馈结果；删除、覆盖本地修改和高风险内容集中在一个审阅窗口中确认。全局通知从右上角出现，一次只显示一个，重复消息会合并。
+
+## Trace 与网络
+
+Trace 可以查看支持的本机会话，展开事件与工具调用，或导入本地会话文件。网络记录用于诊断请求和响应，代理设置作用于 MUX 自己的联网操作。详见 [Trace 与网络记录](/guide/traces)。
+
+[观看演示](/guide/demo) · [CLI 自动化](/guide/cli)

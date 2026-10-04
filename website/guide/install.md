@@ -91,17 +91,6 @@ Agent 关系写操作必须使用准确资产 ID 和显式 `--agent <id>`。脚�
 
 ## 数据放在哪
 
-所有用户数据都在 `~/.mux/`：
-
-```
-~/.mux/
-├── settings.json           # 单一文档：agents · sources · disabled · state
-├── sources/
-│   ├── remote/<id>.json    # 订阅 URL 的缓存
-│   └── local/<id>.(json|toml)  # 导入的本地文件 + 手动/探索两个托管来源
-└── backups/                # 修改已有 Agent 配置前的独立时间戳备份
-```
-
-桌面和 CLI 都读写这里，所以两端天然同步。
+所有用户数据共享 `~/.mux/`。中央 MCP 来源、Model 元数据和 Skill 内容位于 `assets/`；设置与消费关系保存在 `settings.json`，审阅、恢复与备份分别保留在专用目录。密钥正文保存在系统 Keychain。详见 [数据布局](/guide/concepts#数据布局)。
 
 下一步 → [核心概念](/guide/concepts)

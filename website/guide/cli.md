@@ -220,7 +220,7 @@ mux model use work --agent pi
 
 ```json
 {
-  "id": "work-provider",
+  "id": "",
   "name": "Work",
   "provider": "custom",
   "base_url": "https://api.example.com/v1",
@@ -230,13 +230,13 @@ mux model use work --agent pi
 }
 ```
 
-将上面的文档保存为 `provider.json`。Profile 文档 `model.json`：
+将上面的文档保存为 `provider.json`。新建时 `id` 必须是空字符串，由 MUX 生成。先保存 Provider，再运行 `mux model provider list --json`，把返回的准确 ID 填入下面的 `provider_id`。Profile 文档 `model.json`：
 
 ```json
 {
-  "id": "work",
+  "id": "",
   "name": "Work model",
-  "provider_id": "work-provider",
+  "provider_id": "PASTE_PROVIDER_ID",
   "protocol": "openai-completions",
   "model": "your-model-id"
 }
@@ -257,7 +257,7 @@ mux model provider delete work-provider --dry-run
 mux model import <candidate-id> --dry-run
 ```
 
-`save` 不带 `--id` 表示创建；编辑必须指定准确旧 ID。Profile 引用已存在 Provider，连接地址和凭据归 Provider 管理。`provider show` 输出脱敏概览，不能直接充当完整编辑文档。`import` 的 candidate ID 来自 `mux discover model`，Core 会绑定当前 fingerprint。
+`save` 不带 `--id` 表示创建，正文 `id` 必须留空；编辑必须指定准确旧 ID。以下命令中的 `work`、`backup`、`work-provider` 等是已有资产 ID 的示例，实际 ID 从 `list` / `status` 获取，不能自行指定新 ID。Profile 引用已存在 Provider，连接地址和凭据归 Provider 管理。`provider show` 输出脱敏概览，不能直接充当完整编辑文档。`import` 的 candidate ID 来自 `mux discover model`，Core 会绑定当前 fingerprint。
 
 如果使用 Keychain，将 Provider 的 `api_key_source` 设置为 `{"kind":"mux-store"}`，通过 `--credential-stdin` 从管道接收凭据。该选项不能与 `--file -` 共用 stdin；没有凭据选项时保留原密钥，只有 `--clear-credential` 才请求清除。不要把密钥放进命令参数。`delivery plaintext` 仅对 Core 支持的 Agent 生效，并且额外要求 `--confirm-plaintext`。
 

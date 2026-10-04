@@ -9,6 +9,12 @@ hero:
     - theme: brand
       text: 快速开始
       link: /guide/what-is-mux
+    - theme: alt
+      text: 观看演示
+      link: '#product-demo'
+    - theme: alt
+      text: 下载桌面 App
+      link: https://github.com/Scoheart/mux/releases/latest
 ---
 
 <MuxHomeSections lang="zh" />

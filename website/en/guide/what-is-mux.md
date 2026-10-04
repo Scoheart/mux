@@ -1,54 +1,38 @@
 # What is MUX
 
-**MUX (MCP Multiplexer)** is a central asset and configuration manager for AI coding Agents. It keeps MCPs, reusable Model Profiles, and user-level Skills in central libraries, then lets Claude Code, Codex, Cursor, QoderWork, OpenCode, and other Agents consume them.
+MUX manages Agent resources and configuration. Keep **Models, MCPs, and Skills** in central libraries, then choose which CLI, desktop app, or IDE uses them. The desktop app and native `mux` CLI share `~/.mux/` and the same management core.
 
-![Overview of the MUX desktop app](/img/registry-overview-current.jpg)
+![MUX 1.10.0 Models library](/media/mux-1.10.0-models.jpg)
 
-> For a breakdown of each area above, see the [desktop app walkthrough](/en/guide/desktop#interface-overview).
+## Start with one asset
 
-## What problem it solves
+| Resource | Create it in | Give it to an Agent |
+|---|---|---|
+| Model connections and Models | Models: add a Provider, then a Model | Select a compatible Model in the Agent workspace |
+| Tool services | MCPs: add, paste, subscribe, or import | Select a central entry in the Agent's MCPs tab |
+| Reusable instructions | Skills: download or import from GitHub, a folder, or an archive | Select the central copy in the Agent's Skills tab |
 
-If you use several AI coding tools at once (Claude Code, Cursor, VS Code, Codex, Zed, …), each one keeps its own MCP config file, with a different format, path, and set of fields. To give them all the same MCP (say `filesystem`, `github`, or `context7`), you have to:
+Creating an asset and assigning it are separate steps. Several compatible Agents can use one asset; MUX adapts their formats, files, and shared directories.
 
-- find each tool's config file path;
-- write it out in that tool's own format (JSON / TOML / YAML), with its own key names and map/list layout;
-- and edit them all again just to change one server's parameters.
+## Everyday workflow
 
-MUX collects MCP servers into **one catalog (the Registry)** and applies the same product logic to Models and Skills: **configure centrally → choose consumers → review impact → transact and verify**. MCPs and Skills are `0..N` per Agent. A native multi-model Agent may also have several assigned Model Profiles but at most one current Profile; a single-model Agent remains limited to one.
+1. Choose Models, MCPs, or Skills in the top bar and organize your central assets.
+2. Open the Agent picker and select your client.
+3. Add assets in its capability tabs. Enable, disable, or select a current Model when supported.
+4. When external changes appear, inspect them and choose to adopt, restore, or detach the exact relationship.
 
-## Two front-ends, one set of data
+Ordinary actions execute directly and report the result. Deletions, local overwrites, and high-risk Skills use one focused review when needed.
 
-MUX has two interfaces, and they **share the same data directory, `~/.mux/`**:
+## Desktop and automation
 
-| | Description |
-|---|---|
-| **Desktop app** | A macOS application (Tauri + React). Visual management, best for the mouse. |
-| **CLI / TUI** | The native Rust binary `mux`. Its subcommands manage consumption across all three asset domains; with no arguments it opens the MCP-focused terminal workspace. |
+Desktop includes resource cards, source navigation, Agent launching and version information, and local session Trace. The CLI manages the same assets and relationships. It can batch Agent status queries and keep an operation alive while a person or another Agent reviews it before committing that original plan.
 
-Because both are built on the **same Rust core crate (`mux-core`)**, the data model exists in only one place. A change you make in the desktop app shows up in the CLI after a refresh, and vice versa.
+The argument-free TUI focuses on MCP management; the full CLI covers more capabilities. See [CLI / TUI](/en/guide/cli).
 
-## The core idea: central assets and consumption
+## Configuration and synchronization
 
-MUX does **not** ship a hardcoded MCP list. Your catalog is assembled from **sources**:
+MUX preserves unrelated settings, comments, and policy fields. Discovered external configuration stays read-only until explicitly managed. Central changes persist first; each physical target then synchronizes independently. One failed target does not roll back others that already succeeded.
 
-- **Subscribe** to a remote URL (pointing at an MCP config file); MUX fetches and caches it;
-- **Import** a local config file;
-- **Manually add** / paste a server;
-- Treat MCPs found only in Agent files as **read-only external state**; they enter the central catalog only through an explicit import.
+Central API keys belong in the system Keychain. Agents receive environment references, retrieval commands, or an explicitly reviewed native delivery method. See [Models](/en/guide/models) for the limits.
 
-The catalog is the union of all enabled managed sources. A separate desired relationship records which Agent should consume which asset; scanning never infers ownership. See [Core concepts](/en/guide/concepts) for details.
-
-## What it can do (feature overview)
-
-- **Browse the catalog**: search, filter by source, and see each MCP's transport, source, which agents use it, and its GitHub repo.
-- **Manage consumers**: edit desired relationships only from the relevant Agent page, then review and write with backups; asset Inspectors show impact read-only.
-- **Reconcile state**: distinguish synced, externally added, changed, removed, unparseable, ambiguous, and unsupported observations without silent background overwrite.
-- **Cascade lifecycle changes**: central updates propagate to every consumer; central deletion also clears relationships and managed Agent targets.
-- **Edit / paste**: edit an MCP config visually, or paste an `mcpServers` JSON/TOML block for automatic recognition.
-- **Recover transactions**: central changes, relationships, and every target commit together; after a crash, startup verifies completion or restores durable snapshots.
-- **Export the effective catalog**: export the deduplicated, complete catalog as standard MCP JSON.
-- **Source management**: subscribe, import, refresh, enable/disable, and delete sources.
-- **Agent management**: add a custom agent and edit its config file path.
-- **Auto-update**: both the desktop app and the standalone CLI follow the latest stable channel.
-
-Next → [Installation](/en/guide/install)
+[Install MUX](/en/guide/install) · [Watch the demo](/en/guide/demo) · [Supported Agents](/en/guide/agents)

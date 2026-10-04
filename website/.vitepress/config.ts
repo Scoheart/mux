@@ -1,19 +1,24 @@
 import { defineConfig } from "vitepress";
+import reference from "./reference.json";
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
   title: "MUX",
   cleanUrls: true,
   lastUpdated: true,
+  srcExclude: ["README.md"],
+  sitemap: { hostname: "https://mux.scoheart.com" },
 
   head: [
     ["meta", { name: "theme-color", content: "#7C5CFC" }],
-    ["meta", { property: "og:title", content: "MUX — MCP Multiplexer" }],
+    ["link", { rel: "icon", href: "/favicon.png", type: "image/png" }],
+    ["meta", { property: "og:title", content: "MUX — Agent Resource Manager" }],
+    ["meta", { property: "og:image", content: "https://mux.scoheart.com/media/mux-1.10.0-models.jpg" }],
     [
       "meta",
       {
         property: "og:description",
-        content: "One place to manage your MCP servers across every AI coding agent",
+        content: "Manage Models, MCPs, Skills, and local Agent traces from one workspace.",
       },
     ],
   ],
@@ -28,13 +33,14 @@ export default defineConfig({
     root: {
       label: "简体中文",
       lang: "zh-CN",
-      description: "跨 AI 编码 agent 统一管理 MCP 服务器 · 官方文档",
+      description: "集中管理 Models、MCPs、Skills 与本地 Agent Trace · MUX 官方文档",
       themeConfig: {
         nav: [
           { text: "首页", link: "/" },
           { text: "指南", link: "/guide/what-is-mux", activeMatch: "/guide/" },
           { text: "支持的 Agent", link: "/guide/agents" },
-          { text: "下载", link: "https://github.com/Scoheart/mux/releases" },
+          { text: "演示", link: "/guide/demo" },
+          { text: `v${reference.version}`, link: "https://github.com/Scoheart/mux/releases/latest" },
         ],
         sidebar: {
           "/guide/": [
@@ -50,14 +56,17 @@ export default defineConfig({
               text: "使用",
               items: [
                 { text: "桌面 App 指南", link: "/guide/desktop" },
+                { text: "Models 与 Providers", link: "/guide/models" },
                 { text: "Skills", link: "/guide/skills" },
+                { text: "Agent Trace 与网络记录", link: "/guide/traces" },
+                { text: "演示视频", link: "/guide/demo" },
                 { text: "命令行 / TUI", link: "/guide/cli" },
                 { text: "支持的 Agent", link: "/guide/agents" },
               ],
             },
             {
               text: "参考",
-              items: [{ text: "常见问题", link: "/guide/faq" }],
+              items: [{ text: "Provider 模板", link: "/guide/providers" }, { text: "常见问题", link: "/guide/faq" }],
             },
           ],
         },
@@ -85,13 +94,14 @@ export default defineConfig({
       label: "English",
       lang: "en-US",
       link: "/en/",
-      description: "Manage MCP servers across every AI coding agent · Official docs",
+      description: "Manage Models, MCPs, Skills, and local Agent traces · Official MUX docs",
       themeConfig: {
         nav: [
           { text: "Home", link: "/en/" },
           { text: "Guide", link: "/en/guide/what-is-mux", activeMatch: "/en/guide/" },
           { text: "Agents", link: "/en/guide/agents" },
-          { text: "Download", link: "https://github.com/Scoheart/mux/releases" },
+          { text: "Demo", link: "/en/guide/demo" },
+          { text: `v${reference.version}`, link: "https://github.com/Scoheart/mux/releases/latest" },
         ],
         sidebar: {
           "/en/guide/": [
@@ -107,14 +117,17 @@ export default defineConfig({
               text: "Usage",
               items: [
                 { text: "Desktop app", link: "/en/guide/desktop" },
+                { text: "Models & Providers", link: "/en/guide/models" },
                 { text: "Skills", link: "/en/guide/skills" },
+                { text: "Agent Trace & network records", link: "/en/guide/traces" },
+                { text: "Demo video", link: "/en/guide/demo" },
                 { text: "CLI / TUI", link: "/en/guide/cli" },
                 { text: "Supported agents", link: "/en/guide/agents" },
               ],
             },
             {
               text: "Reference",
-              items: [{ text: "FAQ", link: "/en/guide/faq" }],
+              items: [{ text: "Provider templates", link: "/en/guide/providers" }, { text: "FAQ", link: "/en/guide/faq" }],
             },
           ],
         },

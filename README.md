@@ -42,7 +42,7 @@ reads macOS app bundle metadata or checks an audited default CLI with a bounded
 Agent details use one workspace with a centered identity, compact launch and
 credential controls, and a single MCPs / Models / Skills tab bar. **配置** expands
 the selected capability's paths and documentation inline. MCP resources use compact
-rows with controls on the right. Skill cards separate the title, two-line
+rows with controls on the right. Skill cards separate the title, three-line
 description, and footer so shared-state badges and controls stay readable. Their
 **…** menu exposes details and removal when supported. Narrow windows reduce the
 number of columns.
@@ -101,14 +101,15 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated sour
 
 ## Screenshots
 
-![MUX MCP catalog with source and conflict visibility](website/public/img/mcps-overview.png)
+[Watch the MUX 1.10.0 desktop walkthrough](https://mux.scoheart.com/en/guide/demo) — Models, MCPs, Skills, Provider editing, and the Agent picker, with Chinese / English captions.
 
-![MUX reusable model endpoints and agent assignments](website/public/img/model-endpoints.png)
+![MUX central Models library](website/public/media/mux-1.10.0-models.jpg)
 
-![QoderWork MCP configuration managed by MUX](website/public/img/qoderwork-config.png)
+![MUX Skills source navigation and cards](website/public/media/mux-1.10.0-skills.jpg)
 
-See the [desktop app guide](website/guide/desktop.md) for Agent search, source
-filtering, and shadowed-configuration screenshots.
+![MUX editable Provider portal and protocol paths](website/public/media/mux-1.10.0-provider.jpg)
+
+See the [desktop app guide](website/guide/desktop.md) for the current workspace and source navigation. Demo assets are public examples and contain no live credentials.
 
 ## Supported agents
 

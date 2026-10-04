@@ -1,64 +1,47 @@
 # FAQ
 
-## Will MUX touch the other servers already in my agent config?
+## Do Desktop and CLI share data?
 
-No. MUX only locates the target entry inside the MCP node and updates managed connection fields; other top-level keys, other servers, and the permissions / OAuth / tool policies, comments, and formatting inside the target entry are all preserved. It backs up before writing, then lands the change with atomic replacement; writes are refused when the backup fails, the config structure is invalid, or the file is modified by another process during the write.
+Yes. They share `~/.mux/`, assets, relationships, and write rules. The full CLI manages Models, Providers, MCPs, and Skills; the argument-free TUI focuses on MCPs. Assets do not need to be created twice.
 
-## Why can't I see a remote HTTP MCP in Claude Desktop?
+## Why can an Agent launch without a configuration capability?
 
-`claude_desktop_config.json` is a local MCP config that only accepts stdio servers. Remote MCP is managed by Claude Connectors, which is not the same local file interface; MUX hides and refuses to install HTTP entries into Claude Desktop.
+Launching, runtime versions, configuration presence, and writable capabilities are separate facts. Only verified paths and native formats are writable; other capabilities remain read-only or guided. An installed plugin host does not prove the plugin exists.
 
-## Are the desktop app and the CLI's data separate?
+## Does MUX overwrite my existing settings?
 
-No. Both share the same data directory `~/.mux/` and are built on the same Rust core. A change on one side is visible on the other after a refresh. You can install just one, or both.
+It edits managed fields and preserves unrelated content, comments, and policies. External additions and edits remain observations. Invalid formats, concurrent changes, and unsafe overwrites stop the affected write. Choose an available adopt, restore, or detach action.
 
-## What do I do about "MUX is damaged and can't be opened"?
+## Why did only some Agents synchronize?
 
-The current release is not notarized with an Apple Developer ID, so macOS may block launch because of the quarantine attribute — it's not that the app content is damaged. Once you've confirmed the file came from this project's Release, run:
+Physical targets synchronize independently and completed targets stay complete. Inspect the failed relationship and repair that target; other Agents do not need to be redone.
 
-```bash
-xattr -dr com.apple.quarantine /Applications/MUX.app
-```
+## Disable, remove use, or delete?
 
-Or right-click the app → Open → click "Open" again in the dialog. See [Installation](/en/guide/install#getting-mux-is-damaged-and-can-t-be-opened) for details.
+Disable keeps the relationship and central asset. Remove use detaches one Agent and safely removes its managed target. Central deletion reviews all consumers and cleans the asset; Skill content moves to backup. External files are preserved.
 
-## Is there a Windows / Linux version?
+## How are same-named MCPs or Skills handled?
 
-For now, the desktop app is packaged and released as a **macOS (Apple Silicon)** `.dmg`. The CLI is native Rust and can in theory be compiled from source on other platforms (`cargo install --path cli`), but the released prebuilt binary is currently macOS aarch64.
+MCP identity is `name::transport`; same-named stdio and HTTP entries are distinct. Central Skills use their name. Importing an existing central name retains consumers without automatically overwriting conflicting external copies. Details distinguish actual copies and content.
 
-## What's the difference between "disable" and "delete"?
+## Why does an Agent fail authentication when a key is in Keychain?
 
-- **Disable**: first saves the server's complete semantic config (including agent-specific policy), then removes it from the agent config; on restore it won't overwrite a same-named entry rebuilt in the meantime. Good for turning something off temporarily.
-- **Delete**: uninstall it from an agent. For manual / discovered entries, you can also **Forget** it — delete it from the catalog entirely and uninstall it from all agents.
+Check its supported delivery. An environment reference needs the variable in the launch environment; some clients require explicitly reviewed export to native private configuration. Verify the Provider, protocol, Model ID, and plan. Keep keys out of logs. See [Models](/en/guide/models).
 
-See [Core concepts](/en/guide/concepts#install-toggle-delete).
+## Project Skills, private repositories, or editing SKILL.md?
 
-## I edited a catalog entry — why didn't a certain agent update?
+MUX manages verified user-level targets. Authenticated private Git sources and editing `SKILL.md` inside MUX are not supported. Import local folders and archives directly. See [Skills](/en/guide/skills).
 
-Editing a catalog entry's connection config auto-re-stamps into every global agent using it, including hand-edited copies; each file is backed up first. Changing only the description or tags won't trigger a sync.
+## Does Trace upload or run content?
 
-To force a push, use **Resync** — the button in the desktop editor, or the `S` key on the TUI Registry screen. Customized copies are skipped and reported, with an option to force overwrite. See [Edit propagation](/en/guide/concepts#edit-propagation).
+Trace reads local sessions or explicitly imported files. Preview does not upload or execute them. Review code and business content before sharing.
 
-## Will same-named stdio and http conflict?
+## How do updates work?
 
-No. MUX's identity is the **`name::transport`** composite key, and `sse` falls under `http`. A same-named stdio and http are **two independent entries**, installed, edited, and deleted independently.
+Check for a Stable update in Desktop settings. A standalone CLI uses `mux upgrade`; a bundled CLI updates with the app. Install the app in `/Applications` before updating instead of running it from a read-only DMG. See [Installation](/en/guide/install).
 
-## Where do the catalog entries come from? Can I keep only some?
+## Which platforms are released?
 
-The catalog is the union of all **enabled sources**; MUX doesn't ship a hardcoded MCP server list. The TUI Sources screen can enable/disable sources individually; the desktop `v1.2.0` currently offers only filtering, refresh, and delete by source. Disabling a source doesn't delete the underlying file. See [Sources](/en/guide/concepts#sources).
+Official prebuilt Desktop and CLI artifacts currently target macOS Apple Silicon. Source compilation on another platform is not the same as completed platform validation.
 
-## Is the Mux curated collection required?
-
-No. It's just an **optional** one-click subscription (a subscription to a built-in, curated remote source). Without it, the catalog still works from your own subscriptions / imports / manual / discovered sources.
-
-## Can data sync across multiple machines?
-
-MUX's catalog, sources, and state all live under `~/.mux/`. Agent paths inside the home directory are saved as `~/…`, but custom absolute paths outside the home directory keep their original value; after syncing across machines, still verify that agents are installed in the same place.
-
-## How does MUX update?
-
-The desktop app silently checks for the latest stable release after launch, and you can also click **Check for updates** at the top. A standalone CLI install uses `mux upgrade`; a CLI installed to `~/.local/bin/mux` alongside the desktop app updates with the app.
-
-## Still have questions?
-
-Ask or share feedback at [GitHub Issues](https://github.com/Scoheart/mux/issues).
+[GitHub Issues](https://github.com/Scoheart/mux/issues) · [Demo](/en/guide/demo)

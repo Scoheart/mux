@@ -1,131 +1,56 @@
 # User-level Skills
 
-MUX manages user-level Skills that follow the Agent Skills format as central assets. Desktop adds and maintains central Skills; both Desktop and the CLI can separately choose which Agents consume them. An Agent page never resolves a source or reinstalls the same Skill. This version manages only global Skills under the user's home directory and neither reads nor writes project directories such as `.agents/skills` or `.claude/skills`.
+A Skill is an instruction directory containing `SKILL.md`. MUX keeps one central copy and assigns links into verified user-level Agent directories. It manages global Skills.
 
-The CLI provides `mux skill list/show/status/assign/unassign/enable/disable/converge`. The no-argument TUI is an MCP-focused terminal workspace and does not provide a Skill lifecycle screen.
+## Get a Skill
 
-## Add to the central library
-
-Open **Skills** in the top bar and choose **Add Skill**. A GitHub source downloads directly; a local folder or archive imports directly. When a source contains multiple Skills, select only the ones you want. Central intake no longer opens review, risk-evidence, or file-diff screens. It only writes the central copy under `~/.mux/assets/skills/items/`; it selects no Agent, creates no link, and establishes no consumption relationship.
-
-MUX still validates source identity, directory boundaries, archive structure, content hashes, and concurrent changes, then writes through a recoverable atomic transaction. These checks add no interaction step. A same-name central asset is replaced only after choosing the explicit backup-and-continue action.
-
-| Source | Behavior |
+| Source | Workflow |
 |---|---|
-| Public GitHub | Accepts `owner/repo`, repository URLs, and GitHub tree URLs for subdirectories. MUX resolves the source to an immutable commit over HTTPS and downloads an archive without invoking local Git. |
-| Local folder | Must be selected with the native macOS folder picker. MUX copies a snapshot, never creates a live link to the original folder, and does not accept a typed path. |
-| Local archive | Imports `.zip`, `.tar.gz`, `.tgz`, or `.tar` through the native picker. MUX extracts it safely and records each Skill's path inside the archive for later checks, updates, and repair. |
+| GitHub | Enter a public repository or subdirectory URL, then select specific Skills |
+| Local folder | Select one Skill or a directory containing several |
+| Archive | Import `.zip`, `.tar.gz`, `.tgz`, or `.tar` |
+| External Agent copy | Observe it first, then explicitly import that exact copy |
 
-A source may contain one or more Skills with a valid `SKILL.md`. Resolution and safety validation run in MUX's bundled Rust core, so using this feature does not require Git, Node.js, or `npx`.
+GitHub, folder, and archive installation does not require Git, Node.js, or `npx`. Download or import creates a central asset; assigning it is a separate step.
 
-Private GitHub repositories, GitLab, SSH Git, and remote archive URLs are not supported yet.
+## Source navigation and cards
 
-## One central copy, multiple links
+![Skill cards with source navigation](/media/mux-1.10.0-skills.jpg)
 
-After download or import completes, MUX stores the single managed copy of each Skill at:
+The left sidebar shows concrete sources. Subdirectories of one GitHub repository group together; same-named folders in different locations remain separate. Search applies to the current scope.
+
+Cards show a name, up to three description lines, and readable-target Agent icons. Icons form a small hand of cards that expands on hover or keyboard focus; clicking opens the Agent's Skills page. Details distinguish central content and actual copies. External copies do not inherit the central source or risk assessment.
+
+## Assign, disable, and remove use
+
+Select a central Skill in the Agent's Skills tab. Its user-level link points to:
 
 ```text
 ~/.mux/assets/skills/items/<skill-name>/
 ```
 
-When a consumption relationship is established, selected Agent directories contain only managed links to that central copy. Every consumer therefore sees one update, while removing one relationship only removes its link and does not delete the central content.
+Several Agents can read one physical directory; reviews list everyone affected. Disabling keeps the relationship and central content. Removing use keeps the central asset and removes only a provably managed link.
 
-MUX normalizes consumption by physical directory. Cursor IDE and Cursor CLI share `~/.cursor/skills` and can also read the `~/.agents/skills` compatibility directory; Gemini CLI, OpenCode, and GitHub Copilot CLI can read that compatibility directory too. A link written to Codex's preferred directory may therefore grant access to those other installed Agents too. Agents sharing one physical target are selected as an inseparable group; the review lists every Agent actually affected and removes redundant links that would make one Skill appear twice.
+External directories, files, and foreign links remain intact. When several physical targets exist, CLI enable/disable uses `--target <target-id>` to choose precisely.
 
-## Verified Agent paths
+## Updates and local changes
 
-MUX declares verified user-level Skills support for **57 Agents**. It shows an Agent only when an installation probe succeeds and its capability data is verified; the existence of a shared directory alone does not prove that Agent is installed.
+Checking updates reads version or content state without changing the Skill. Ordinary low-risk updates execute directly; overwriting local edits, conflicts, or high-risk candidates requires one review.
 
-| Agent | Preferred user-level directory | Compatibility directories |
-|---|---|---|
-| Amp | `~/.config/agents/skills` | `~/.agents/skills`, `~/.config/amp/skills`, `~/.claude/skills` |
-| Google Antigravity | `~/.gemini/config/skills` | — |
-| Augment Code | `~/.augment/skills` | `~/.claude/skills`, `~/.agents/skills` |
-| Claude Code | `~/.claude/skills` | — |
-| Cline | `~/.cline/skills` | — |
-| CodeBuddy Code | `~/.codebuddy/skills` | — |
-| CodeWhale | `~/.codewhale/skills` | — |
-| Codex CLI / Desktop (shared directory) | `~/.agents/skills` | — |
-| GitHub Copilot CLI | `~/.copilot/skills` | `~/.agents/skills` |
-| Crush | `~/.config/crush/skills` | `~/.config/agents/skills`, `~/.agents/skills`, `~/.claude/skills` |
-| Cursor | `~/.cursor/skills` | `~/.agents/skills` |
-| Cursor CLI | `~/.cursor/skills` | `~/.agents/skills` |
-| Dirac | `~/.agents/skills` | `~/.dirac/skills`, `~/.claude/skills`, `~/.ai/skills` |
-| Docker Agent | `~/.agents/skills` | — |
-| Eclipse Theia IDE | `~/.agents/skills` | — |
-| Factory / Factory Droid (shared directory) | `~/.factory/skills` | — |
-| Firebender | `~/.firebender/skills` | `~/.goose/skills`, `~/.claude/skills`, `~/.codex/skills`, `~/.cursor/skills`, `~/.agents/skills` |
-| Gemini CLI | `~/.gemini/skills` | `~/.agents/skills` |
-| Goose | `~/.agents/skills` | `~/.claude/skills` |
-| Grok Build | `~/.grok/skills` | — |
-| Hermes Agent | `~/.hermes/skills` | — |
-| Kilo Code CLI | `~/.kilo/skills` | — |
-| Kimi Code CLI | `~/.kimi-code/skills` | `~/.agents/skills` |
-| Kiro | `~/.kiro/skills` | — |
-| Minion Code | `~/.minion/skills` | `~/.claude/skills` |
-| Mistral Vibe | `~/.vibe/skills` | — |
-| OpenCode CLI / Desktop | `~/.config/opencode/skills` | `~/.claude/skills`, `~/.agents/skills` |
-| OpenHands CLI | `~/.openhands/skills` | — |
-| Pi Coding Agent | `~/.pi/agent/skills` | `~/.agents/skills` |
-| Poolside | `~/.agents/skills` | — |
-| Qoder IDE | `~/.qoder/skills` | — |
-| Qoder CLI | `~/.qoder/skills` | — |
-| QoderWork | `~/.qoderwork/skills` | — |
-| Qwen Code | `~/.qwen/skills` | — |
-| Raycast | `~/.config/raycast/skills` | `~/.claude/skills`, `~/.config/agents/skills`, `~/.agents/skills` |
-| Roo Code | `~/.roo/skills` | `~/.agents/skills` |
-| Atlassian Rovo Dev CLI | `~/.rovodev/skills` | `~/.agents/skills` |
-| Snowflake Cortex Code | `~/.snowflake/cortex/skills` | `~/.claude/skills` |
-| Stakpak | `~/.stakpak/skills` | — |
-| Step Code | `~/.stepcode/agent/skills` | `~/.agents/skills` |
-| TRAE IDE | `~/.trae/skills` | — |
-| Visual Studio Code | `~/.copilot/skills` | `~/.claude/skills`, `~/.agents/skills` |
-| VT Code | `~/.agents/skills` | — |
-| Warp | `~/.agents/skills` | `~/.warp/skills`, `~/.claude/skills`, `~/.codex/skills`, `~/.cursor/skills`, `~/.gemini/skills`, `~/.copilot/skills`, `~/.factory/skills`, `~/.github/skills`, `~/.opencode/skills` |
-| Windsurf | `~/.codeium/windsurf/skills` | `~/.agents/skills` |
-| Zed | `~/.agents/skills` | — |
-| Zencoder | `~/.agents/skills` | — |
+Reinstalling, importing the same central name, and updating preserve existing consumers and disabled state. An upstream revision change with identical content updates version metadata only. Adoption rereads and audits the current content, binding its hash; edits after review invalidate the old plan.
 
-An Agent's MCP config path and Skills path are separate contracts; MUX never infers one from the other. See [Supported agents](/en/guide/agents#skills-capabilities) for context.
+A managed link exposes the central copy, so editing through it changes central content too. MUX detects that change rather than treating it as an independent external copy.
 
-## Background safety checks
+## Risk and recovery
 
-Before writing, MUX validates candidate structure and content locally. Escaping links, path traversal, special files, oversized archives, and content changed before commit are rejected. Executable and script findings remain available in asset details but no longer add an approval step during download or import.
+MUX checks paths, links, archives, structure, and content hashes without running candidate scripts. `SKILL.md` renders as text, without executing embedded HTML or remote resources.
 
-- Skill content, content hashes, file paths, and risk findings are never uploaded.
-- MUX does not run candidate scripts, and “no high-risk pattern found” is not a security certification.
-- `SKILL.md` is rendered as plain text; embedded HTML, scripts, and remote resources are not executed.
+High-risk approval binds the exact content hash. Assigning or enabling that approved central version does not repeat the same findings confirmation; changed content is audited again. Authority-reducing actions are not blocked by the risk gate.
 
-Risk confirmation is bound to the exact `content_hash` that enters or replaces the central library. Assigning or enabling that same approved central version does not request the findings confirmation again; a changed content hash, managed record, or target still fails as stale or conflicted. Authority-reducing disable, unassign, and remove operations are never blocked by the high-risk gate.
+Central state persists first and each physical target converges independently. Failed targets retain a pending relationship while successful targets remain complete. Details expose repair. Central deletion reviews consumers and moves content to timestamped backup.
 
-## Lifecycle operations
+## Current limits
 
-Download and import commit their internal plans directly from the user's action. Updates, removal, repair, and Agent assignment still show impact when applicable. If content or settings change after planning, MUX rejects the stale operation and asks the user to retry.
+Project-level Skill writes, authenticated private Git sources, and creating or editing `SKILL.md` inside MUX are not supported. See [Supported Agents](/en/guide/agents#skills) for directory contracts.
 
-| Operation | Result |
-|---|---|
-| Assign to an Agent | Choose the Skill from the relevant Agent page or run `mux skill assign <skill-id> --agent <agent-id>`. The central copy itself does not change; all Agents sharing one target are shown and changed together. |
-| Unassign | `mux skill unassign <skill-id> --agent <agent-id>` removes the relationship without deleting the central Skill. MUX removes a target only when it is still the exact managed link to the central copy; an external directory, regular file, or foreign link is preserved while ownership is released. Unassign remains available after the central record or Agent installation probe disappears. |
-| Check / update | Background and manual checks read only a GitHub revision, local-folder hash, or archive hash and never change content. Choosing Update then stages the candidate, shows the diff, reruns the audit, and confirms replacement. Local modifications to the central copy require “back up and replace.” |
-| Import | An external copy in an Agent directory remains read-only first. A direct import or confirmed historical migration copies and validates it, backs up the original directory, and replaces it with a central link. Same-name directories with the same hash merge into one central copy; divergent content is never overwritten automatically. The original is not moved before success. |
-| Disable | Removes the managed target link while retaining the central copy and other assignments. Review lists every Agent that loses access through a shared directory. |
-| Converge | `mux skill converge {skill-id} --agent {agent-id} {adopt\|restore\|detach}` adopts observed content, restores a provably safe managed link, or detaches ownership for one exact observation while listing every Agent affected by a shared target. Restore never overwrites external directories, regular files, or foreign links. |
-| Remove | Removes all managed links, moves the central copy into timestamped `~/.mux/backups/skills/`, then removes its managed record. This version has no permanent backup purge action. |
-
-Candidates and internal transaction plans live in `~/.mux/staging/skills/`; commit progress lives in `~/.mux/journals/skills/`. If a commit fails or the app crashes, the journal safely rolls back or finishes the commit according to the persisted phase. If recovery cannot complete, the Skills workspace becomes read-only and refuses new writes.
-
-## Current boundaries
-
-This version does not support:
-
-- project-level Skills;
-- private repositories or authenticated Git sources;
-- creating or editing `SKILL.md` in MUX.
-
-Return to the [Desktop app guide](/en/guide/desktop#skills) or see [Supported agents](/en/guide/agents#skills-capabilities).
-
-## Browse by source
-
-The sidebar lists individual GitHub repositories, local folders, archives, and imported sources. Repository subdirectories share one group; local roots with identical names remain distinct. Selecting a source filters the Skill cards, and search applies within that source.
-
-Cards show the name, description, and Agent icons for currently readable targets. Icons form a small overlapping hand that expands on hover or keyboard focus. Each icon lifts and reveals its Agent name; clicking opens that Agent's Skills tab. A `+N` button opens all consumers when there are more than four. Missing or broken targets do not count as active usage. Full provenance, risk information, and repair actions remain in the detail view. Reduced-motion settings disable the transitions.
+[CLI Skill commands](/en/guide/cli#skill) · [Watch the demo](/en/guide/demo)

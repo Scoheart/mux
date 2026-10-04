@@ -39,6 +39,47 @@
   --mux-color-swap: 0.35s;
 }
 
+/* Released product media and searchable references. */
+.mux-product-demo { max-width: 1152px; margin: 0 auto; padding: 16px 24px 72px; }
+.mux-product-demo h2 { font-size: clamp(28px, 4vw, 42px); line-height: 1.2; letter-spacing: -.035em; font-weight: 650; margin: 26px 0 12px; }
+.mux-product-demo > p { color: var(--vp-c-text-2); margin-bottom: 26px; line-height: 1.7; }
+.mux-product-demo__meta { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; color: var(--vp-c-text-2); font-size: 13px; }
+.mux-product-demo__meta > span { padding: 6px 12px; border: 1px solid var(--vp-c-divider); border-radius: 100px; }
+.mux-product-demo__meta > a { color: var(--vp-c-brand-1); }
+.mux-demo video { display: block; width: 100%; height: auto; border: 1px solid var(--vp-c-divider); border-radius: 16px; background: #eef1f5; box-shadow: 0 14px 50px -24px rgba(25, 35, 55, .24); }
+.mux-demo__chapters { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.mux-demo__chapters button { display: inline-flex; gap: 8px; border: 1px solid var(--vp-c-divider); border-radius: 8px; padding: 8px 12px; font-size: 13px; background: var(--vp-c-bg-soft); color: var(--vp-c-text-1); }
+.mux-demo__chapters button:hover { border-color: var(--vp-c-brand-1); color: var(--vp-c-brand-1); }
+.mux-demo__chapters button span { font-family: var(--vp-font-family-mono); color: var(--vp-c-text-3); }
+.mux-demo__caption { color: var(--vp-c-text-2); font-size: 12px; line-height: 1.8; margin: 12px 0 0; }
+.mux-demo__caption a { color: var(--vp-c-brand-1); margin-left: 8px; text-decoration: underline; }
+.mux-row__visual--screenshot { background: transparent !important; min-height: 0 !important; }
+.mux-row__visual--screenshot img { width: 100%; height: auto; border: 1px solid var(--vp-c-divider); border-radius: 12px; }
+.mux-automation { max-width: 1104px; margin: 24px auto 72px; padding: 32px; border: 1px solid var(--vp-c-divider); border-radius: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+.mux-automation h2 { font-size: 28px; font-weight: 650; line-height: 1.4; margin: 10px 0; letter-spacing: -.025em; }
+.mux-automation p { color: var(--vp-c-text-2); line-height: 1.8; margin-bottom: 18px; }
+.mux-automation pre { font-size: 12px; line-height: 1.8; padding: 24px; margin: 0; border-radius: 10px; background: var(--vp-c-bg-soft); overflow-x: auto; align-self: center; }
+.mux-eyebrow { font-size: 11px; font-weight: 650; letter-spacing: .12em; color: var(--vp-c-brand-1); }
+.mux-reference { margin: 24px 0 32px; }
+.mux-reference__toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+.mux-reference__toolbar input { flex: 1; min-width: 180px; padding: 10px 12px; border: 1px solid var(--vp-c-divider); border-radius: 8px; background: var(--vp-c-bg-soft); }
+.mux-reference__toolbar select { border: 1px solid var(--vp-c-divider); border-radius: 8px; padding: 10px; background: var(--vp-c-bg-soft); }
+.mux-reference__toolbar > span { color: var(--vp-c-text-2); font-size: 12px; }
+.mux-reference__scroll { overflow-x: auto; border: 1px solid var(--vp-c-divider); border-radius: 10px; }
+.mux-reference__scroll table { display: table; margin: 0; width: 100%; min-width: 680px; font-size: 12px; }
+.mux-reference__scroll th, .mux-reference__scroll td { border-width: 0 0 1px; vertical-align: top; padding: 12px; }
+.mux-reference__scroll tr:last-child td { border-bottom: 0; }
+.mux-reference small { display: block; color: var(--vp-c-text-2); margin-top: 6px; line-height: 1.6; }
+.mux-reference__id { display: block; margin-top: 6px; font-size: 11px; white-space: nowrap; }
+.mux-reference td > a + a { margin-left: 10px; }
+.mux-reference input:focus-visible, .mux-reference select:focus-visible, .mux-demo button:focus-visible, .mux-reference__scroll:focus-visible { outline: 2px solid var(--vp-c-brand-1); outline-offset: 3px; }
+@media (max-width: 768px) {
+  .mux-product-demo { padding: 16px 24px 48px; }
+  .mux-automation { margin: 16px 24px 48px; grid-template-columns: 1fr; padding: 24px; gap: 24px; }
+  .mux-automation pre { font-size: 11px; padding: 16px; }
+  .mux-demo__chapters button { padding: 7px 10px; }
+}
+
 .dark {
   --vp-c-brand-1: #9b85ff;
   --vp-c-brand-2: #7c5cfc;

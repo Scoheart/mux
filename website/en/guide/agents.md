@@ -1,136 +1,37 @@
-# Supported agents
+# Supported Agents
 
-MUX's agent data comes in two layers:
+This searchable table comes from the released MUX registry and Core capability output. Search by name or exact ID and filter capabilities. Product forms retain separate identities; CLI, Desktop, IDE, and Plugin distinguish same-named entries.
 
-- **Audited definitions**: `data/agents.json` contains individually verified configuration contracts. MCP writes require a confirmed global path and format; other Agents expose only their verified Skills or native configuration guidance.
-- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. Its **204 entries** combine with the audited definitions into **230 unique Agent identities** after deduplication.
+<AgentReference lang="en" />
 
-For MCP capability, clients whose global file path, top-level key, and entry structure have not been confirmed never become writable MCP targets. Skills-only Agents appear only after their user-level directory contract is verified independently. This keeps expanding coverage without writing a generic JSON guess into an unknown product's config.
+## What support means
 
-MUX treats MCPs, Models, and Skills as central assets. Create, import, and maintain them in the top-level libraries first; an Agent page or the unified CLI then chooses which compatible assets that Agent should consume. MCPs and Skills are `0..N` per Agent. Native multi-model Agents may have several assigned Profiles but at most one current Profile; single-model Agents remain `0..1`. Asset Inspectors own lifecycle actions and show impact without editing Agent relationships.
+MCP paths, Skill directories, and Model capabilities are verified independently. One capability does not imply another. An entry without a confirmed path and native format is not writable. Discovery-only candidates are a research backlog, not automatic configuration support.
 
-Agent files and Skill links are observed state, not an alternate asset database. MUX projects them as synced, externally added, changed, removed, unparseable, ambiguous, or unsupported. Scanning never silently takes ownership. Each changed relationship can explicitly adopt the observation, restore MUX desired state, or detach ownership through one recoverable transaction.
+- MCP shows verified user-level global files.
+- Skills shows the primary user-level directory; compatibility read paths and shared targets appear in actual reviews.
+- Models distinguishes managed configuration from official guidance. See [Models](/en/guide/models) for protocols, current selection, and credentials.
 
-MUX currently exposes **15 Model targets**: 13 are managed, while MiniMax Code and Qoder remain the two guided targets because no equivalent safe writer is available.
+## Shared configuration and separate entries
 
-## Verified list
+**Codex CLI and its desktop entry** share Codex configuration and user-level Skills; Model writing is managed through the CLI identity. **Cursor IDE and CLI** share MCPs and Skills with separate launch entries.
 
-The results below are based on official docs, official source, or signed application bundles through **2026-09-28**. Grok Build was verified against xAI's official documentation; MiniMax Code was verified from the official signed `3.0.51` macOS bundle.
+**OpenCode CLI and Desktop** share native configuration and both manage Models. **Qoder IDE** has its own MCP file; **Qoder Desktop and CLI** share settings but select Models differently. **QoderWork** has independent user configuration. Use the exact identity rather than only the display name.
 
-The table focuses on MCP contracts: it lists the verified writable targets and retains Devin, Cline Desktop, and Freebuff as explicit read-only comparisons. See Skills capabilities below and [User-level Skills](/en/guide/skills#verified-agent-paths) for the Skills-only definitions.
+A shared file or directory review lists all affected Agents; MUX does not treat one physical target as several unrelated files.
 
-The new Qoder Desktop MCP contract was verified against its official documentation on 2026-09-05.
+## Installation and versions
 
-| Agent | Format | Config key | User-level global path | Native transports |
-|---|---|---|---|---|
-| [Agentkube](https://agentkube.mintlify.app/agents/mcp) | JSON | `mcpServers` | `~/.agentkube/mcp.json` | stdio / http |
-| [Amp](https://ampcode.com/manual#model-context-protocol-mcp) | JSON | `amp.mcpServers` | `~/.config/amp/settings.json` | stdio / http |
-| [Amazon Q Developer IDE](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/mcp-ide.html) | JSON | `mcpServers` | `~/.aws/amazonq/default.json` | stdio / http |
-| [Google Antigravity](https://antigravity.google/docs/mcp) | JSON | `mcpServers` | `~/.gemini/config/mcp_config.json` | stdio / http |
-| [Augment Code](https://docs.augmentcode.com/cli/integrations) | JSON | `mcpServers` | `~/.augment/settings.json` | stdio / http |
-| [BoltAI](https://docs.boltai.com/docs/plugins/mcp-servers) | JSON | `mcpServers` | `~/.boltai/mcp.json` | stdio |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/mcp) | JSON | `mcpServers` | `~/.claude.json` | stdio / http |
-| [Claude Desktop](https://modelcontextprotocol.io/quickstart/user) | JSON | `mcpServers` | `~/Library/Application Support/Claude/claude_desktop_config.json` | stdio |
-| [ChatMCP](https://github.com/daodao97/chatmcp) | JSON | `mcpServers` | `~/Library/Application Support/ChatMcp/mcp_server.json` | stdio / http |
-| [Cline](https://docs.cline.bot/mcp/configuring-mcp-servers) | JSON | `mcpServers` | `~/.cline/data/settings/cline_mcp_settings.json` | stdio / http |
-| [Cline Desktop](https://cline.bot/desktop) | - | - | discovery only | - |
-| [CodeBuddy Code](https://www.codebuddy.ai/docs/cli/mcp) | JSON | `mcpServers` | `~/.codebuddy/.mcp.json` | stdio / http |
-| [CodeWhale](https://github.com/Hmbown/CodeWhale/blob/main/docs/MCP.md) | JSON | `servers` | `~/.codewhale/mcp.json` | stdio / http |
-| [Codex CLI](https://developers.openai.com/codex/mcp) | TOML | `mcp_servers` | `~/.codex/config.toml` | stdio / http |
-| [Codex Desktop](https://developers.openai.com/codex) | TOML | `mcp_servers` | `~/.codex/config.toml` | stdio / http |
-| [Continue](https://docs.continue.dev/customize/deep-dives/mcp) | YAML | `mcpServers` | `~/.continue/config.yaml` | stdio / http |
-| [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/extend-coding-agent-with-mcp) | JSON | `mcpServers` | `~/.copilot/mcp-config.json` | stdio / http |
-| [Crush](https://github.com/charmbracelet/crush#model-context-protocol-mcp) | JSON | `mcp` | `~/.config/crush/crush.json` | stdio / http |
-| [Cursor](https://docs.cursor.com/context/model-context-protocol) | JSON | `mcpServers` | `~/.cursor/mcp.json` | stdio / http |
-| [Cursor CLI](https://cursor.com/docs/cli/overview) | JSON | `mcpServers` | `~/.cursor/mcp.json` | stdio / http |
-| [Devin](https://docs.devin.ai/work-with-devin/mcp) | - | - | discovery only | - |
-| [Factory](https://docs.factory.ai/harness/mcp) | JSON | `mcpServers` | `~/.factory/mcp.json` | stdio / http |
-| [Factory Droid](https://docs.factory.ai/cli/configuration/mcp) | JSON | `mcpServers` | `~/.factory/mcp.json` | stdio / http |
-| [Firebender](https://docs.firebender.com/context/mcp/overview) | JSON | `mcpServers` | `~/.firebender/firebender.json` | stdio / http |
-| [Freebuff](https://freebuff.com/) | - | - | discovery only | - |
-| [Gemini CLI](https://geminicli.com/docs/tools/mcp-server/) | JSON | `mcpServers` | `~/.gemini/settings.json` | stdio / http |
-| [Goose](https://goose-docs.ai/docs/guides/config-files/) | YAML | `extensions` | `~/Library/Application Support/Block/goose/config/config.yaml` | stdio / http |
-| [Grok Build](https://docs.x.ai/build/features/mcp-servers) | TOML | `mcp_servers` | `~/.grok/config.toml` | stdio / http |
-| [Hermes Agent](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/mcp.md) | YAML | `mcp_servers` | `~/.hermes/config.yaml` | stdio / http |
-| [JetBrains Junie](https://www.jetbrains.com/help/junie/model-context-protocol-mcp.html) | JSON | `mcpServers` | `~/.junie/mcp/mcp.json` | stdio / http |
-| [Kilo Code CLI](https://kilo.ai/docs/automate/mcp/using-in-kilo-code) | JSON | `mcp` | `~/.config/kilo/kilo.jsonc` | stdio / http |
-| [Kimi Code CLI](https://moonshotai.github.io/kimi-code/en/customization/mcp) | JSON | `mcpServers` | `~/.kimi-code/mcp.json` | stdio / http |
-| [Kiro](https://kiro.dev/docs/mcp/configuration/) | JSON | `mcpServers` | `~/.kiro/settings/mcp.json` | stdio / http |
-| [LM Studio](https://lmstudio.ai/docs/app/plugins/mcp) | JSON | `mcpServers` | `~/.lmstudio/mcp.json` | stdio / http |
-| [MiniMax Code](https://agent.minimax.io/download) | JSON | `mcpServers` | `~/.mavis/mcp.json` | stdio / http |
-| [Mistral Vibe](https://docs.mistral.ai/vibe/code/cli/mcp-servers) | TOML | `mcp_servers` | `~/.vibe/config.toml` | stdio / http |
-| [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
-| [OpenCode Desktop](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
-| [OpenHands CLI](https://docs.openhands.dev/openhands/usage/cli/mcp-servers) | JSON | `mcpServers` | `~/.openhands/mcp.json` | stdio / http |
-| [Pi Coding Agent](https://pi.dev/docs/latest/mcp) | JSON | `mcpServers` | `~/.pi/agent/mcp.json` | stdio / http |
-| [Qoder IDE](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/.qoder/mcp.json` | stdio / http |
-| [Qoder Desktop](https://docs.qoder.com/qoder/connectors) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
-| [Qoder CLI](https://docs.qoder.com/en/cli/mcp-servers) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
-| [QoderWork](https://docs.qoder.com/qoderwork/connectors) | JSON | `mcpServers` | `~/.qoderwork/mcp.json` | stdio / http |
-| [Qwen Code](https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/) | JSON | `mcpServers` | `~/.qwen/settings.json` | stdio / http |
-| [Roo Code](https://docs.roocode.com/features/mcp/using-mcp-in-roo) | JSON | `mcpServers` | `~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json` | stdio / http |
-| [Atlassian Rovo Dev CLI](https://support.atlassian.com/rovo/docs/connect-to-an-mcp-server-in-rovo-dev-cli/) | JSON | `mcpServers` | `~/.rovodev/mcp.json` | stdio / http |
-| [Stakpak](https://github.com/stakpak/agent#mcp-proxy-server) | TOML | `mcpServers` | `~/.stakpak/mcp.toml` | stdio / http |
-| [Step Code](https://platform.stepfun.com/docs/zh/step-code/customization/mcp) | TOML | `mcp_servers` | `~/.stepcode/config.toml` | stdio / http |
-| [Tabnine](https://docs.tabnine.com/main/getting-started/tabnine-agent/mcp-intro-and-setup) | JSON | `mcpServers` | `~/.tabnine/mcp_servers.json` | stdio / http |
-| [Visual Studio Code](https://code.visualstudio.com/docs/copilot/chat/mcp-servers) | JSON | `servers` | `~/Library/Application Support/Code/User/mcp.json` | stdio / http |
-| [VT Code](https://github.com/vinhnx/VTCode/blob/main/docs/guides/mcp-integration.md) | TOML | `mcp.providers` | `~/.vtcode/vtcode.toml` | stdio / http |
-| [Warp](https://docs.warp.dev/knowledge-and-collaboration/mcp) | JSON | `mcpServers` | `~/.warp/.mcp.json` | stdio / http |
-| [Windsurf](https://docs.windsurf.com/windsurf/cascade/mcp) | JSON | `mcpServers` | `~/.codeium/windsurf/mcp_config.json` | stdio / http |
-| [Zed](https://zed.dev/docs/ai/mcp) | JSON | `context_servers` | `~/.config/zed/settings.json` | stdio / http |
+Runtime detection is separate from an existing configuration file. macOS app versions come from bundle metadata; audited default CLI commands use bounded version queries. Custom CLI commands are not run automatically for detection.
 
-### Targets that need special distinction
+A launchable plugin host does not prove the plugin is installed. Unconfirmed facts remain unknown. `mux agent launch show <agent-id> --json` returns the same launch and version information.
 
-- **Installed version**: An Agent page shows whether its launch target is installed and, when detectable, its version. macOS app versions come from the app bundle; built-in CLI launchers get a bounded `--version` probe. Custom CLI commands are never executed automatically for this probe. IDE plugins such as Cline and Amazon Q show the VS Code host version, labeled as such. If a version cannot be read, MUX still shows “Installed”. The same `version` field is available through `mux agent launch show <agent-id>`.
-- **Pi**: Pi 0.99.0+ supports MCP natively. MUX writes the official user-level `mcp.json`, observes `enabled`, and preserves Pi-owned exposure and timeout policy; it does not write project files. Earlier Pi releases need an MCP extension. An extension that overrides `/mcp` also replaces the built-in MCP session behavior; see the [official guide](https://pi.dev/docs/latest/mcp). Reload a running session after external changes.
-- **Qoder IDE / CLI / Desktop**: three separate entries. IDE (`qoder`) keeps `~/.qoder/mcp.json`; new Desktop (`qoder-desktop`, 0.1.x) and CLI (`qoder-cli`) share `~/.qoder/settings.json`, so edits to the same MCP entry affect both. Configure Desktop models in Settings → Models and CLI models in `/model`. The new Desktop Skills write contract has not been verified.
-- **Cursor IDE / CLI**: two separate launch identities share `~/.cursor/mcp.json` and `~/.cursor/skills`; the current CLI command is `agent`, with `cursor-agent` retained as a legacy fallback. MUX therefore merges their physical MCP/Skills impact while keeping their launch entries separate; Models and API credentials remain Cursor-managed.
-- **Step Code**: verified on 2026-09-23 against StepFun's official docs. MCP writes only the `mcp_servers` table in `~/.stepcode/config.toml`, using `url` and `http_headers` for remote servers and rejecting legacy SSE. `auth.json` and `models.json` stay managed by Step Code. Skills prefer `~/.stepcode/agent/skills` and also read `~/.agents/skills`. Launch uses `~/.stepcode/bin/step` and does not probe a bare `step` command.
-- **Devin / Cline Desktop / Freebuff**: these products provide Agent capabilities, but no stable user-level global file contract was verified, so MUX provides discovery and launch entry points without configuration writes.
-- **QoderWork**: user-defined MCP servers live in `~/.qoderwork/mcp.json`; MUX does not modify the client's built-in MCP data.
-- **Claude Desktop / BoltAI**: the local files listed natively support stdio only. Remote MCP is managed by Claude Connectors or BoltAI's `mcp-remote` approach, respectively.
-- **Goose**: the generic docs example uses `~/.config/goose/config.yaml`, but the current macOS source actually uses `~/Library/Application Support/Block/goose/config/config.yaml`; MUX locates it by the runtime code.
-- **Grok Build**: MCP and custom models share `~/.grok/config.toml`. MUX separately manages `mcp_servers`, `[models].default`, and one dedicated MUX model table across all three documented API backends while preserving other models, auth, timeout, permission, and tool settings. Authentication writes only an `env_key` name, never a secret value.
-- **MiniMax Code**: the main and MCP configurations are separate at `~/.mavis/config.yaml` and `~/.mavis/mcp.json`. MUX safely manages `mcpServers`; Models remains guided because the current custom-provider flow persists `options.apiKey` as plaintext YAML.
+## Skills
 
-## Skills capabilities
+Skill assignment uses verified user-level directories and targets available on the current machine. Agents sharing a directory form one impact group. Codex's primary directory is `~/.agents/skills`; another product's compatibility directory is not automatically a Codex write contract.
 
-Skills paths are verified separately from the MCP config paths in the table above; MUX never infers one from the other. MUX currently declares Skills capabilities for **54 audited Agents** with stable user-level contracts, and shows only Agents whose local installation probes succeed.
+## Read-only entries and native guidance
 
-Skills assignments operate on physical directories, not Agent names. Cursor IDE and Cursor CLI share `~/.cursor/skills` and may both read the `~/.agents/skills` compatibility directory; Gemini CLI, OpenCode, and GitHub Copilot CLI may also read that compatibility directory. An operation on Codex's preferred directory can therefore affect several installed Agents. MUX shows the real impact during review and normalizes duplicate links. See [User-level Skills](/en/guide/skills#verified-agent-paths) for the path matrix, installation sources, background safety checks, and current boundaries.
+Products without a stable user-level configuration contract remain read-only or guided. Pi's native MCP contract applies to 0.99.0+; earlier versions need their appropriate extension. Claude desktop's local MCP file accepts stdio; remote connections use its native Connectors.
 
-## Format differences across agents
-
-MUX does not treat every client as the same `mcpServers` JSON:
-
-- OpenCode / Kilo use `type: local|remote`, with a local `command` as an array.
-- Codex uses TOML tables and `http_headers`; Grok Build uses `mcp_servers` TOML tables and `headers`; Mistral Vibe uses a `[[mcp_servers]]` TOML list.
-- Continue uses a YAML list and requires root-level `name`, `version`, and `schema`; Goose and Hermes also use their own YAML maps.
-- Gemini / Qwen use `httpUrl`; Windsurf and Antigravity use `serverUrl`.
-- Cline puts connection fields in a `transport` sub-object; Tabnine puts HTTP headers in `requestInit.headers`.
-- Rovo, Amazon Q, Augment, OpenHands, etc. require an explicit transport type; Kimi / Hermes only write `transport: sse` for legacy SSE.
-
-Each built-in target has its own codec. On upgrade, MUX updates the official schema metadata but preserves your choices for enabled state and global path.
-
-## Safe-write boundary
-
-MUX parses agent files locally, but only provides the structured connection fields of the target MCP entry to the UI. The complete config file never enters the UI, logs, source cache, or the network, and MUX never overwrites your config by "deserializing the whole file and rewriting it."
-
-- JSON / JSONC use a syntax tree to locate the target entry, preserving comments, indentation, key order, other servers, and other top-level settings.
-- Both TOML maps and TOML lists are edited locally; YAML maps / lists likewise preserve unmanaged content and comments.
-- Agent-private fields like `enabled`, OAuth, timeouts, tool allowlists, and approval policies are preserved as-is.
-- If a ChatMCP file contains OAuth, token, or client-secret material, MUX treats the entire file as externally managed and refuses writes before backup; sensitive entries never enter MUX inventory or backups.
-- Writes are refused on an invalid document, a wrong node type, duplicate target keys, a YAML multi-document file, a failed backup, or a concurrent modification.
-- A timestamped independent backup is created before writing (directory `0700`, file `0600` on Unix), and the final replacement is atomic via a temp file in the same directory; symlink targets and the original config file's permissions are left unchanged.
-
-MUX currently manages only user-level global config and does not offer project-level writes.
-
-## Custom agents
-
-Click `+` next to the desktop app's agent selector, or press `n` in the TUI's Agents screen, to add a custom JSON, TOML, or YAML global target. Custom targets use the standard map layout; only verified built-in targets enable product-specific field conversion. Built-in targets allow only overriding the path, to avoid accidentally turning an official schema into an incompatible format.
-
-Next → [FAQ](/en/guide/faq)
-
-## OpenCode Desktop
-
-OpenCode CLI and Desktop share their local global configuration and Skills directory. Desktop launches `OpenCode.app`; changing the global model affects both clients. Remote server configurations must be managed on the server.
+See the repository's [Agent Catalog methodology](https://github.com/Scoheart/mux/blob/main/docs/agent-catalog.md).

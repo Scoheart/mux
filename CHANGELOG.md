@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.236](https://github.com/Scoheart/mux/compare/v1.8.235...v1.8.236) (2026-10-04)
+
+### Changes
+
+* feat(models): show provider connection settings directly ([99ccdee](https://github.com/Scoheart/mux/commit/99ccdeed6a03cf54c275e7bc47ca48f3154868a2))
+
 ## [1.8.235](https://github.com/Scoheart/mux/compare/v1.8.234...v1.8.235) (2026-10-04)
 
 ### Changes

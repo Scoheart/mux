@@ -2471,6 +2471,7 @@ body {
 .mux-provider-portal { gap: 8px; }
 .mux-provider-portal-row { display: flex; min-width: 0; align-items: center; gap: 8px; }
 .mux-provider-portal-row .mux-model-field { min-width: 0; flex: 1; font-family: var(--font-mono); font-size: 11px; }
+.mux-provider-form .mux-provider-portal-url { height: 54px; padding: 8px 10px; line-height: 18px; resize: none; overflow-wrap: anywhere; }
 .mux-provider-portal-row .btn-ghost { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; border: 1px solid var(--border-hairline); border-radius: 6px; }
 .mux-provider-portal-note { display: flex; min-height: 15px; align-items: center; justify-content: space-between; gap: 12px; }
 .mux-provider-portal-note small { color: var(--text-tertiary); font-size: 10px; line-height: 1.35; }

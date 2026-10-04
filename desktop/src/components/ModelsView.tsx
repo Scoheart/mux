@@ -260,6 +260,26 @@ function normalizeProviderPortalUrl(value: string) {
   }
 }
 
+// Decode only for presentation. The editable and persisted URL remains the
+// original string: decoded '&', '#', or '=' may belong inside a query value.
+function readablePortalUrl(value: string) {
+  const decode = (part: string) => {
+    try {
+      return decodeURIComponent(part).replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, encodeURIComponent);
+    } catch { return part; }
+  };
+  const queryStart = value.indexOf("?");
+  if (queryStart < 0) return decode(value);
+  const query = value.slice(queryStart + 1).split("&").map((parameter) => {
+    const separator = parameter.indexOf("=");
+    const decodeQuery = (part: string) => decode(part.replace(/\+/g, " "));
+    return separator < 0
+      ? decodeQuery(parameter)
+      : `${decodeQuery(parameter.slice(0, separator))}=${decodeQuery(parameter.slice(separator + 1))}`;
+  }).join("&");
+  return `${decode(value.slice(0, queryStart))}?${query}`;
+}
+
 function normalizeEndpointPath(value: string) {
   const trimmed = value.trim();
   if (
@@ -1645,6 +1665,7 @@ function ModelProviderDialog({
   });
   const defaultPortal = template?.portal;
   const [portalUrl, setPortalUrl] = useState(initial?.portal_url ?? defaultPortal?.url ?? "");
+  const [portalUrlFocused, setPortalUrlFocused] = useState(false);
   const [protocolPaths, setProtocolPaths] = useState<Record<ModelProtocol, string>>(
     Object.fromEntries(
       PROTOCOLS.map(({ id }) => [
@@ -1893,13 +1914,22 @@ function ModelProviderDialog({
               : t("models.providerPortalOptional")}</small>
           </div>
           <div className="mux-provider-portal-row">
-            <input
+            <textarea
               aria-label={t("models.providerPortalUrl")}
-              className="mux-model-field"
-              type="url"
-              value={portalUrl}
+              className="mux-model-field mux-provider-portal-url"
+              rows={2}
+              value={portalUrlFocused ? portalUrl : readablePortalUrl(portalUrl)}
+              title={portalUrl}
+              onFocus={(event) => {
+                const field = event.currentTarget;
+                setPortalUrlFocused(true);
+                requestAnimationFrame(() => field.select());
+              }}
+              onBlur={() => setPortalUrlFocused(false)}
               onChange={(event) => setPortalUrl(event.currentTarget.value)}
               placeholder="https://provider.example.com/api-keys"
+              autoCapitalize="off"
+              autoCorrect="off"
               spellCheck={false}
             />
             <ProviderPortalButton portal={portal} />

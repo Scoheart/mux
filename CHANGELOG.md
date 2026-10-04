@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.239](https://github.com/Scoheart/mux/compare/v1.8.238...v1.8.239) (2026-10-04)
+
+### Changes
+
+* fix(models): display readable provider portal URLs ([6e2947a](https://github.com/Scoheart/mux/commit/6e2947a8911617ed4fa751a6dfac2166e4551e29))
+
 ## [1.8.238](https://github.com/Scoheart/mux/compare/v1.8.237...v1.8.238) (2026-10-04)
 
 ### Changes

@@ -1,9 +1,9 @@
 import { ResourceIcon } from "./resourcePresentation";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SourceView } from "../lib/types";
 import { IconButton } from "./ui";
-import { CloudIcon, FolderIcon, RefreshIcon, TrashIcon, EditIcon, SearchIcon } from "./icons";
+import { CloudIcon, FolderIcon, PlusIcon, RefreshIcon, TrashIcon, EditIcon, SearchIcon } from "./icons";
 import { SubscribeDialog } from "./SubscribeDialog";
 import { useToast } from "./Toast";
 import { formatError } from "../lib/format";
@@ -34,11 +34,15 @@ export function SourcesSidebar({
   state,
   selectedId,
   onSelect,
+  onCreate,
+  footer,
 }: {
   state: InstallState;
   /** null = 全部 (all sources). */
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  onCreate: () => void;
+  footer?: ReactNode;
 }) {
   const { sources, catalog } = state;
   const toast = useToast();
@@ -97,20 +101,25 @@ export function SourcesSidebar({
 
   return (
     <>
-    <WorkspaceSidebar title="MCPs" count={catalog.length}>
-      <SidebarSection
-        title="来源"
-        actions={
-          <>
-            <IconButton title="添加订阅" onClick={() => setSubscribeOpen(true)}>
-              <CloudIcon className="w-4 h-4" />
-            </IconButton>
-            <IconButton title="导入配置" onClick={pickLocal}>
-              <FolderIcon className="w-4 h-4" />
-            </IconButton>
-          </>
-        }
-      >
+    <WorkspaceSidebar title="MCPs" count={catalog.length} footer={footer}
+      actions={<>
+        <button className="btn-primary" type="button" onClick={onCreate}>
+          <PlusIcon className="w-4 h-4" />
+          添加 MCPs
+        </button>
+        <div className="mux-sidebar-action-pair">
+          <button className="btn-secondary" type="button" onClick={() => setSubscribeOpen(true)}>
+            <CloudIcon className="w-4 h-4" />
+            添加订阅
+          </button>
+          <button className="btn-secondary" type="button" onClick={pickLocal}>
+            <FolderIcon className="w-4 h-4" />
+            导入配置
+          </button>
+        </div>
+      </>}
+    >
+      <SidebarSection title="来源">
         <SidebarItem
           active={selectedId === null}
           icon={<ResourceIcon domain="mcp" className="w-3.5 h-3.5" />}

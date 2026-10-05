@@ -133,9 +133,12 @@ export function ResourceWorkspace({
   sidebar,
   title,
   description,
+  overview,
   query,
   onQueryChange,
   searchPlaceholder,
+  listLabel,
+  resultCount,
   toolbarActions,
   children,
   filters,
@@ -145,10 +148,13 @@ export function ResourceWorkspace({
   sidebar?: ReactNode;
   title?: string;
   description?: string;
+  overview?: ReactNode;
   query: string;
   onQueryChange: (value: string) => void;
   searchPlaceholder: string;
-  toolbarActions: ReactNode;
+  listLabel?: string;
+  resultCount?: number;
+  toolbarActions?: ReactNode;
   children: ReactNode;
   filters?: ReactNode;
   inspector?: ReactNode;
@@ -275,17 +281,21 @@ export function ResourceWorkspace({
         >
           {sidebar}
           <section className="mux-workspace-stage">
-            {title && (
+            {overview ?? (title && (
               <header className="mux-workspace-intro">
                 <div>
                   <h1>{title}</h1>
                   {description && <p>{description}</p>}
                 </div>
               </header>
-            )}
+            ))}
             <div className="mux-workspace-toolbar">
+              {listLabel && <h2 className="mux-workspace-list-heading">
+                {listLabel}
+                {typeof resultCount === "number" && <span>{resultCount}</span>}
+              </h2>}
               <SearchBar value={query} onChange={onQueryChange} placeholder={searchPlaceholder} />
-              <div className="mux-workspace-actions">{toolbarActions}</div>
+              {toolbarActions && <div className="mux-workspace-actions">{toolbarActions}</div>}
             </div>
             {filters && <div className="mux-workspace-filters">{filters}</div>}
             <div className="mux-workspace-content">
@@ -322,10 +332,14 @@ export function ResourceWorkspace({
 export function WorkspaceSidebar({
   title,
   count,
+  actions,
+  footer,
   children,
 }: {
   title: string;
   count: number;
+  actions?: ReactNode;
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   const resize = useContext(WorkspaceResizeContext);
@@ -336,7 +350,9 @@ export function WorkspaceSidebar({
         <strong>{title}</strong>
         <span>{count} 项</span>
       </div>
+      {actions && <div className="mux-workspace-sidebar-actions">{actions}</div>}
       <div className="mux-workspace-sidebar-scroll">{children}</div>
+      {footer && <div className="mux-workspace-sidebar-footer">{footer}</div>}
       {resize && (
         <div
           className="mux-workspace-sidebar-resize"
@@ -353,6 +369,38 @@ export function WorkspaceSidebar({
         />
       )}
     </aside>
+  );
+}
+
+/** The selected Provider/source stays visible while its resource cards scroll. */
+export function ResourceOverview({
+  eyebrow,
+  title,
+  description,
+  icon,
+  actions,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  description?: string;
+  icon: ReactNode;
+  actions?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <header className="mux-resource-overview">
+      <div className="mux-resource-overview-heading">
+        <span className="mux-resource-overview-icon">{icon}</span>
+        <div className="mux-resource-overview-identity">
+          <span className="mux-resource-overview-eyebrow">{eyebrow}</span>
+          <h1 title={title}>{title}</h1>
+          {description && <p>{description}</p>}
+        </div>
+        {actions && <div className="mux-resource-overview-actions">{actions}</div>}
+      </div>
+      {children && <div className="mux-resource-overview-details">{children}</div>}
+    </header>
   );
 }
 

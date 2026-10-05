@@ -122,6 +122,7 @@ pub fn run() {
             commands::set_agent_credential_delivery,
             commands::list_registry_all,
             commands::list_custom_registry_keys,
+            commands::preview_pasted_config,
             commands::import_pasted_config,
             commands::list_sources,
             commands::subscribe_source,

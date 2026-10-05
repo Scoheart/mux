@@ -1,22 +1,48 @@
+import { useTranslation } from "react-i18next";
+import type { PastedMcpSummary } from "../lib/api";
+
 const EXAMPLE = `{
   "mcpServers": {
-    "my-server": {
+    "playwright": {
       "command": "npx",
-      "args": ["-y", "my-mcp-server"]
+      "args": ["-y", "@playwright/mcp@latest"]
+    }
+  }
+}`;
+const HTTP_EXAMPLE = `{
+  "mcpServers": {
+    "my-server": {
+      "type": "http",
+      "url": "https://example.com/mcp"
     }
   }
 }`;
 
-export function McpPasteInput({ value, onChange, disabled }: {
+export function McpPasteInput({ value, onChange, disabled, preview, error, pending, existingKeys }: {
   value: string;
   onChange(value: string): void;
   disabled: boolean;
+  preview: PastedMcpSummary[] | null;
+  error: string;
+  pending: boolean;
+  existingKeys: Set<string>;
 }) {
+  const { t } = useTranslation();
   return <div className="mux-mcp-paste-fields">
-    <p>支持 JSON、TOML、YAML，可直接粘贴从 MUX 复制的配置。</p>
+    <p>{t("mcpEditor.pasteHint")}</p>
+    <div className="mux-mcp-code-editor">
+    <div className="mux-mcp-code-toolbar">
+      <span>JSON <i>·</i> TOML <i>·</i> YAML</span>
+      <div>
+        <button type="button" disabled={disabled || !!value.trim()} title={value.trim() ? t("mcpEditor.exampleHint") : undefined} onClick={() => onChange(EXAMPLE)}>{t("mcpEditor.localExample")}</button>
+        <button type="button" disabled={disabled || !!value.trim()} title={value.trim() ? t("mcpEditor.exampleHint") : undefined} onClick={() => onChange(HTTP_EXAMPLE)}>{t("mcpEditor.remoteExample")}</button>
+      </div>
+    </div>
     <textarea
       autoFocus
-      aria-label="MCP 配置"
+      data-modal-initial-focus
+      aria-label={t("mcpEditor.pasteLabel")}
+      aria-invalid={!!error || undefined}
       className="mux-paste-config-input"
       placeholder={EXAMPLE}
       value={value}
@@ -26,5 +52,22 @@ export function McpPasteInput({ value, onChange, disabled }: {
       autoCapitalize="off"
       autoCorrect="off"
     />
+    </div>
+    {value.trim() && <div className="mux-mcp-paste-result" aria-live="polite">
+      {pending ? <p>{t("mcpEditor.detecting")}</p> : error ? <p className="mux-mcp-field-error">{error}</p> : preview && <>
+        <strong>{t("mcpEditor.detected", { count: preview.length })}</strong>
+        <ul aria-label={t("mcpEditor.previewLabel")}>
+          {preview.map((entry) => {
+            const key = `${entry.name}::${entry.transport}`;
+            const updatesExisting = existingKeys.has(key);
+            return <li key={key}>
+              <span className="mux-mcp-import-name">{entry.name}</span>
+              <code>{entry.transport}</code>
+              <span className="mux-mcp-import-action" data-update={updatesExisting || undefined}>{t(updatesExisting ? "mcpEditor.updateEntry" : "mcpEditor.newEntry")}</span>
+            </li>;
+          })}
+        </ul>
+      </>}
+    </div>}
   </div>;
 }

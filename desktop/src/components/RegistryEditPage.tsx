@@ -1,5 +1,6 @@
 import { ResourceIcon } from "./resourcePresentation";
-import { useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { InstallState } from "../hooks/useInstallState";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type { AssetCommandError, McpIconPreference, RegistryEntry } from "../lib/types";
@@ -8,13 +9,14 @@ import { requiresAgentReview } from "../lib/agentOperation";
 import { EnvEditor } from "./EnvEditor";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import { DialogShell } from "./DialogShell";
-import { DialogDisclosure } from "./DialogDisclosure";
+import { FormSelect } from "./FormSelect";
 import { ResourceInspector } from "./ResourceWorkspace";
-import { LayersIcon, SaveIcon } from "./icons";
+import { LayersIcon, NetworkIcon, SaveIcon, TerminalIcon } from "./icons";
 import { useToast } from "./Toast";
 import { McpAvatar } from "./McpIcon";
 import { McpPasteInput } from "./McpPasteInput";
 import { formatError } from "../lib/format";
+import { previewPastedConfig, type PastedMcpSummary } from "../lib/api";
 
 interface RegistryEditPageProps {
   state: InstallState;
@@ -31,18 +33,7 @@ interface RegistryEditPageProps {
   presentation?: "dialog" | "inspector";
 }
 
-const labelCls = "text-xs font-semibold mb-1.5 block";
-const labelStyle = { color: "var(--text-secondary)", letterSpacing: 0 } as const;
-const inputStyle = {
-  background: "var(--surface-raised)",
-  border: "1px solid var(--border-hairline)",
-  color: "var(--text-primary)",
-  fontSize: 13,
-  padding: "8px 12px",
-  borderRadius: 8,
-  outline: "none",
-  width: "100%",
-} as const;
+const HTTP_TYPES = ["http", "sse", "streamable-http"];
 
 export function RegistryEditPage({
   state,
@@ -56,6 +47,8 @@ export function RegistryEditPage({
 }: RegistryEditPageProps) {
   const { entries, customKeys } = state;
   const toast = useToast();
+  const { t } = useTranslation();
+  const connectionId = useId();
 
   const isNew = name === null;
   const existing = useMemo(
@@ -84,19 +77,39 @@ export function RegistryEditPage({
   const [argsEdited, setArgsEdited] = useState(false);
   const [cwd, setCwd] = useState(existing?.config.stdio?.cwd ?? "");
   const [env, setEnv] = useState<Record<string, string>>(existing?.config.stdio?.env ?? {});
+  const [envValid, setEnvValid] = useState(true);
 
   const [httpType, setHttpType] = useState<string>(existing?.config.http?.type ?? "http");
   const [url, setUrl] = useState(existing?.config.http?.url ?? "");
   const [headers, setHeaders] = useState<Record<string, string>>(existing?.config.http?.headers ?? {});
+  const [headersValid, setHeadersValid] = useState(true);
   const [repo, setRepo] = useState(existing?.repo ?? "");
 
   const [saving, setSaving] = useState(false);
   const [addMode, setAddMode] = useState<"paste" | "manual">("paste");
   const [pasteText, setPasteText] = useState("");
   const isPaste = isNew && addMode === "paste";
+  const [pasteResult, setPasteResult] = useState<{ text: string; entries: PastedMcpSummary[]; error: string } | null>(null);
+  const pasteReady = isPaste && pasteResult?.text === pasteText;
+  const pasteEntries = pasteReady ? pasteResult.entries : null;
+  const pasteError = pasteReady ? pasteResult.error : "";
+  const pasteValid = !!pasteEntries?.length && !pasteError;
+  const existingKeys = useMemo(() => new Set(entries.map(keyOf)), [entries]);
+
+  useEffect(() => {
+    if (!isPaste || !pasteText.trim()) return;
+    let active = true;
+    const timer = setTimeout(() => {
+      void previewPastedConfig(pasteText).then(
+        (entries) => { if (active) setPasteResult({ text: pasteText, entries, error: "" }); },
+        (error) => { if (active) setPasteResult({ text: pasteText, entries: [], error: formatError(error) }); },
+      );
+    }, 300);
+    return () => { active = false; clearTimeout(timer); };
+  }, [isPaste, pasteText]);
 
   const handlePaste = async () => {
-    if (!pasteText.trim() || saving) return;
+    if (!pasteValid || saving) return;
     setSaving(true);
     try {
       const names = await state.importPaste(pasteText);
@@ -143,9 +156,19 @@ export function RegistryEditPage({
     repo: repo.trim() || undefined,
   });
 
+  let urlInvalid = false;
+  if (url.trim()) {
+    try {
+      const endpoint = new URL(url.trim());
+      urlInvalid = HTTP_TYPES.includes(httpType) && !["http:", "https:"].includes(endpoint.protocol);
+    } catch { urlInvalid = true; }
+  }
+  const duplicateName = serverName.trim() && existingKeys.has(`${serverName.trim()}::${transport}`)
+    && `${serverName.trim()}::${transport}` !== (existing ? keyOf(existing) : undefined);
   const valid =
     serverName.trim().length > 0 &&
-    (transport === "stdio" ? command.trim().length > 0 : url.trim().length > 0);
+    !duplicateName &&
+    (transport === "stdio" ? command.trim().length > 0 && envValid : url.trim().length > 0 && !!httpType.trim() && !urlInvalid && headersValid);
 
   const handleSave = async () => {
     if (!valid || saving) return;
@@ -198,157 +221,125 @@ export function RegistryEditPage({
   };
 
   const form = (
-    <div className="mux-mcp-form">
-            {createsLocalOverride && (
-              <div className="mux-mcp-override-note" role="note">
-                <LayersIcon className="w-4 h-4 flex-shrink-0" />
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold">创建本地覆盖</div>
-                  <div className="text-[11px] mt-0.5 leading-relaxed">
-                    保存后使用你的本地配置；订阅内容和后续更新不会被修改。
-                  </div>
-                </div>
-              </div>
-            )}
-            {/* Name + description */}
-            <div className="flex gap-4 mb-4">
-              <div className="flex-1 min-w-0">
-                <label className={labelCls} style={labelStyle}>名称</label>
-                <input
-                  aria-label="名称"
-                  style={{ ...inputStyle, fontFamily: "var(--font-mono)" }}
-                  value={serverName}
-                  onChange={(e) => setServerName(e.target.value)}
-                  placeholder="server-name"
-                />
-              </div>
-              <div className="flex-[1.6] min-w-0">
-                <label className={labelCls} style={labelStyle}>描述</label>
-                <input
-                  style={inputStyle}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="一句话描述"
-                />
-              </div>
+    <fieldset className="mux-mcp-form mux-mcp-editor-form" disabled={saving || consumptionState.committing}>
+      {createsLocalOverride && (
+        <div className="mux-mcp-override-note" role="note">
+          <LayersIcon className="w-4 h-4 flex-shrink-0" />
+          <div>
+            <strong>{t("mcpEditor.override")}</strong>
+            <p>{t("mcpEditor.overrideHint")}</p>
+          </div>
+        </div>
+      )}
+      <div className="mux-mcp-connection-picker" role="radiogroup" aria-label={t("mcpEditor.connection")}>
+        {(["stdio", "http"] as const).map((value) => (
+          <label key={value} data-selected={transport === value || undefined} data-disabled={!isNew || undefined}>
+            <input type="radio" name={connectionId} value={value} checked={transport === value}
+              disabled={!isNew} onChange={() => setTransport(value)} />
+            {value === "stdio" ? <TerminalIcon /> : <NetworkIcon />}
+            <span>
+              <strong>{t(value === "stdio" ? "mcpEditor.local" : "mcpEditor.remote")}</strong>
+              <small>{t(value === "stdio" ? "mcpEditor.localHint" : "mcpEditor.remoteHint")}</small>
+            </span>
+            <i aria-hidden="true" />
+          </label>
+        ))}
+      </div>
+      <div className="mux-mcp-field-grid">
+        <label className="mux-mcp-field">
+          <span>{t("mcpEditor.name")}</span>
+          <input aria-label={t("mcpEditor.name")} className="mux-dialog-input" value={serverName}
+            readOnly={!!createsLocalOverride} onChange={(event) => setServerName(event.target.value)}
+            placeholder={t("mcpEditor.namePlaceholder")} aria-invalid={!!duplicateName || undefined} spellCheck={false} />
+          {duplicateName && <small className="mux-mcp-field-error">{t("mcpEditor.duplicateKey")}</small>}
+        </label>
+        <label className="mux-mcp-field">
+          <span>{t("mcpEditor.description")} <small>{t("mcpEditor.optional")}</small></span>
+          <input className="mux-dialog-input" value={description} onChange={(event) => setDescription(event.target.value)}
+            placeholder={t("mcpEditor.descriptionPlaceholder")} />
+        </label>
+      </div>
+      <div hidden={transport !== "stdio"}>
+        <div className="mux-mcp-connection-fields">
+          <div className="mux-mcp-field-grid">
+            <label className="mux-mcp-field">
+              <span>{t("mcpEditor.command")}</span>
+              <input className="mux-dialog-input mux-dialog-input-mono" value={command}
+                onChange={(event) => setCommand(event.target.value)} placeholder="npx / uvx / node" spellCheck={false} autoCapitalize="off" autoCorrect="off" />
+            </label>
+            <label className="mux-mcp-field">
+              <span>{t("mcpEditor.directory")} <small>{t("mcpEditor.optional")}</small></span>
+              <input className="mux-dialog-input mux-dialog-input-mono" value={cwd}
+                onChange={(event) => setCwd(event.target.value)} placeholder={t("mcpEditor.directoryPlaceholder")}
+                spellCheck={false} autoCapitalize="off" autoCorrect="off" />
+            </label>
+          </div>
+          <label className="mux-mcp-field">
+            <span>{t("mcpEditor.args")} <small>{t("mcpEditor.argsHint")}</small></span>
+            <textarea aria-label={t("mcpEditor.args")} className="mux-dialog-input mux-mcp-args" rows={3}
+              value={argsText} onChange={(event) => { setArgsText(event.target.value); setArgsEdited(true); }}
+              placeholder={"-y\n@playwright/mcp@latest"} spellCheck={false} autoCapitalize="off" autoCorrect="off" />
+          </label>
+          <section className="mux-mcp-field mux-mcp-field-section" aria-label={t("mcpEditor.environment")}>
+            <span>{t("mcpEditor.environment")} <small>{t("mcpEditor.optional")}</small></span>
+            <EnvEditor value={env} onChange={setEnv} onValidityChange={setEnvValid} disabled={saving} />
+          </section>
+        </div>
+      </div>
+      <div hidden={transport !== "http"}>
+        <div className="mux-mcp-connection-fields">
+          <div className="mux-mcp-remote-fields">
+            <label className="mux-mcp-field">
+              <span>{t("mcpEditor.url")}</span>
+              <input className="mux-dialog-input mux-dialog-input-mono" value={url}
+                onChange={(event) => setUrl(event.target.value)} placeholder="https://example.com/mcp"
+                aria-invalid={urlInvalid || undefined} spellCheck={false} autoCapitalize="off" autoCorrect="off" />
+              {urlInvalid && <small className="mux-mcp-field-error">{t("mcpEditor.invalidUrl")}</small>}
+            </label>
+            <div className="mux-mcp-field">
+              <span>{t("mcpEditor.protocol")}</span>
+              <FormSelect ariaLabel={t("mcpEditor.protocol")} value={HTTP_TYPES.includes(httpType) ? httpType : "custom"}
+                options={[
+                  { value: "http", label: t("mcpEditor.streamable") },
+                  { value: "sse", label: t("mcpEditor.sse") },
+                  { value: "streamable-http", label: t("mcpEditor.explicitStreamable") },
+                  { value: "custom", label: t("mcpEditor.custom") },
+                ]} onChange={(value) => setHttpType(value === "custom" ? "" : value)} disabled={saving} />
             </div>
-
-            {/* Transport */}
-            <div className="mb-4">
-              <label className={labelCls} style={labelStyle}>传输方式</label>
-              <div className="mux-seg">
-                <button disabled={!isNew} className="mux-seg-item" data-active={transport === "stdio" ? "true" : undefined} onClick={() => setTransport("stdio")}>
-                  stdio
-                </button>
-                <button disabled={!isNew} className="mux-seg-item" data-active={transport === "http" ? "true" : undefined} onClick={() => setTransport("http")}>
-                  http / sse
-                </button>
-              </div>
-            </div>
-
-            {transport === "stdio" ? (
-              <>
-                <div className="mb-4">
-                  <label className={labelCls} style={labelStyle}>命令 command</label>
-                  <input
-                    style={{ ...inputStyle, fontFamily: "var(--font-mono)" }}
-                    value={command}
-                    onChange={(e) => setCommand(e.target.value)}
-                    placeholder="npx"
-                  />
-                </div>
-                <div className="mb-4">
-                  <label className={labelCls} style={labelStyle}>参数 args（每行一个）</label>
-                  <textarea
-                    aria-label="启动参数"
-                    style={{ ...inputStyle, fontFamily: "var(--font-mono)", minHeight: 80, resize: "vertical" }}
-                    value={argsText}
-                    onChange={(e) => { setArgsText(e.target.value); setArgsEdited(true); }}
-                    placeholder={"-y\n@modelcontextprotocol/server-filesystem"}
-                  />
-                </div>
-                <DialogDisclosure title="运行设置" summary={cwd || Object.keys(env).length ? "已配置" : "目录、环境变量"}>
-                <label className={labelCls} style={labelStyle}>工作目录
-                  <input style={{ ...inputStyle, marginTop: 6, fontFamily: "var(--font-mono)" }}
-                    value={cwd} onChange={(event) => setCwd(event.target.value)} placeholder="留空使用默认目录" />
-                </label>
-                <div>
-                  <label className={labelCls} style={labelStyle}>环境变量 env</label>
-                  <EnvEditor value={env} onChange={setEnv} />
-                </div>
-                </DialogDisclosure>
-              </>
-            ) : (
-              <>
-                <div className="mb-4">
-                  <label className={labelCls} style={labelStyle}>类型 type</label>
-                  <div className="mux-seg mb-2">
-                    {["http", "sse", "streamable-http"].map((t) => (
-                      <button
-                        key={t}
-                        className="mux-seg-item"
-                        data-active={httpType === t ? "true" : undefined}
-                        onClick={() => setHttpType(t)}
-                      >
-                        {t}
-                      </button>
-                    ))}
-                  </div>
-                  <input
-                    style={{ ...inputStyle, fontFamily: "var(--font-mono)" }}
-                    value={httpType}
-                    onChange={(e) => setHttpType(e.target.value)}
-                    placeholder="http / sse / streamable-http / 自定义"
-                  />
-                  <p className="text-[11px] mt-1" style={{ color: "var(--text-secondary)" }}>
-                    可点预设或输入任意 type（如 streamable-http），原值写入配置。
-                  </p>
-                </div>
-                <div className="mb-4">
-                  <label className={labelCls} style={labelStyle}>URL</label>
-                  <input
-                    style={{ ...inputStyle, fontFamily: "var(--font-mono)" }}
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    placeholder="https://example.com/mcp"
-                  />
-                </div>
-                <DialogDisclosure title="请求头" summary={Object.keys(headers).length ? `${Object.keys(headers).length} 项` : "可选"}>
-                <div>
-                  <label className={labelCls} style={labelStyle}>请求头 headers</label>
-                  <EnvEditor value={headers} onChange={setHeaders} />
-                </div>
-                </DialogDisclosure>
-              </>
-            )}
-            <DialogDisclosure title="更多信息" summary="仓库 / 主页">
-            {/* Repo / homepage */}
-            <div className="mb-4">
-              <label className={labelCls} style={labelStyle}>仓库 / 主页（可选）</label>
-              <input
-                style={{ ...inputStyle, fontFamily: "var(--font-mono)" }}
-                value={repo}
-                onChange={(e) => setRepo(e.target.value)}
-                placeholder="https://github.com/owner/repo"
-              />
-            </div>
-
-
-            </DialogDisclosure>
-    </div>
+          </div>
+          {!HTTP_TYPES.includes(httpType) && <label className="mux-mcp-field">
+            <span>{t("mcpEditor.customType")}</span>
+            <input className="mux-dialog-input mux-dialog-input-mono" value={httpType}
+              onChange={(event) => setHttpType(event.target.value)} placeholder="type" spellCheck={false} />
+          </label>}
+          <section className="mux-mcp-field mux-mcp-field-section" aria-label={t("mcpEditor.headers")}>
+            <span>{t("mcpEditor.headers")} <small>{t("mcpEditor.optional")}</small></span>
+            <EnvEditor kind="headers" value={headers} onChange={setHeaders} onValidityChange={setHeadersValid} disabled={saving} />
+          </section>
+        </div>
+      </div>
+      <label className="mux-mcp-field">
+        <span>{t("mcpEditor.repo")} <small>{t("mcpEditor.optional")}</small></span>
+        <input className="mux-dialog-input mux-dialog-input-mono" value={repo}
+          onChange={(event) => setRepo(event.target.value)} placeholder="https://github.com/owner/repo"
+          spellCheck={false} autoCapitalize="off" autoCorrect="off" />
+      </label>
+    </fieldset>
   );
 
   const footerStart = !isNew && isCustom ? (
-    <button onClick={handleRevert} disabled={saving} className="btn-danger" title="删除自定义，恢复内置默认">
-      恢复默认
+    <button onClick={handleRevert} disabled={saving} className="btn-danger" title={t("mcpEditor.restoreHint")}>
+      {t("mcpEditor.restore")}
     </button>
   ) : null;
   const footerEnd = (
     <>
-      <button onClick={onBack} disabled={saving} className="btn-ghost">取消</button>
-      <button onClick={isPaste ? handlePaste : handleSave} disabled={(isPaste ? !pasteText.trim() : !valid) || saving} className="btn-primary">
+      <button onClick={onBack} disabled={saving} className="btn-ghost">{t("common.cancel")}</button>
+      <button onClick={isPaste ? handlePaste : handleSave} disabled={(isPaste ? !pasteValid : !valid) || saving} className="btn-primary">
         <SaveIcon className="w-4 h-4" />
-        {saving ? isNew ? "添加中…" : "保存中…" : isNew ? isPaste ? "识别并添加" : "添加" : createsLocalOverride ? "创建本地覆盖" : "保存"}
+        {saving ? t(isPaste ? "mcpEditor.importing" : isNew ? "mcpEditor.adding" : "common.saving")
+          : isPaste ? pasteEntries?.length ? t("mcpEditor.importCount", { count: pasteEntries.length }) : t("mcpEditor.import")
+          : t(isNew ? "mcpEditor.add" : createsLocalOverride ? "mcpEditor.override" : "common.save")}
       </button>
     </>
   );
@@ -401,19 +392,25 @@ export function RegistryEditPage({
       leading={<span className="mux-dialog-shell-glyph"><ResourceIcon domain="mcp" /></span>}
       className="mux-dialog-mcp-editor"
       kind="editor"
-      size={isNew ? "md" : "lg"}
-      title={isNew ? "添加 MCPs" : "编辑 MCP"}
-      subtitle={isNew ? undefined : transport === "stdio" ? "stdio · 全局配置" : "HTTP · 全局配置"}
+      size="wide"
+      title={t(isNew ? "mcpEditor.addTitle" : "mcpEditor.editTitle")}
+      subtitle={isNew ? undefined : `${transport === "stdio" ? "stdio" : "HTTP"} · ${t("mcpEditor.global")}`}
       busy={saving || consumptionState.committing}
       onClose={onBack}
-      footerStart={footerStart}
+      footerStart={footerStart ?? (isNew ? t("mcpEditor.pasteScope") : null)}
       footerEnd={footerEnd}
     >
-      {isNew && <div className="mux-seg mux-mcp-add-modes" role="group" aria-label="添加方式">
-        <button type="button" className="mux-seg-item" aria-pressed={addMode === "paste"} data-active={addMode === "paste" ? "true" : undefined} disabled={saving} onClick={() => setAddMode("paste")}>粘贴配置</button>
-        <button type="button" className="mux-seg-item" aria-pressed={addMode === "manual"} data-active={addMode === "manual" ? "true" : undefined} disabled={saving} onClick={() => setAddMode("manual")}>手动填写</button>
+      {isNew && <div className="mux-seg mux-mcp-add-modes" role="group" aria-label={t("mcpEditor.addMode")}>
+        <button type="button" className="mux-seg-item" aria-pressed={addMode === "paste"}
+          disabled={saving} onClick={() => setAddMode("paste")}>{t("mcpEditor.paste")}</button>
+        <button type="button" className="mux-seg-item" aria-pressed={addMode === "manual"}
+          disabled={saving} onClick={() => setAddMode("manual")}>{t("mcpEditor.manual")}</button>
       </div>}
-      {isPaste ? <McpPasteInput value={pasteText} onChange={setPasteText} disabled={saving} /> : form}
+      {isNew && <div hidden={!isPaste}>
+        <McpPasteInput value={pasteText} onChange={setPasteText} disabled={saving}
+          preview={pasteEntries} error={pasteError} pending={!pasteReady} existingKeys={existingKeys} />
+      </div>}
+      <div hidden={isPaste}>{form}</div>
     </DialogShell>
   );
 }

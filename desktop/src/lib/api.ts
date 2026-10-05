@@ -238,7 +238,11 @@ export const planUpdateAgentCapabilities = (
   request: { agent_id: id, patch },
 });
 export const scanInstalled = () => invoke<InstalledMcp[]>("scan_installed");
-/** Parse a pasted config blob (JSON/TOML) and add its servers to the manual
+/** Read-only, identity-only preview; parsing remains owned by core. */
+export interface PastedMcpSummary { name: string; transport: "stdio" | "http"; }
+export const previewPastedConfig = (text: string) =>
+  invoke<PastedMcpSummary[]>("preview_pasted_config", { text });
+/** Parse a pasted config blob (JSON/TOML/YAML) and add its servers to the manual
  *  source. Returns the added server names. */
 export const importPastedConfig = (text: string) =>
   invoke<string[]>("import_pasted_config", { text });

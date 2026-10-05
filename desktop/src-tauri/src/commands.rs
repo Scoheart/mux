@@ -696,7 +696,27 @@ pub async fn list_custom_registry_keys() -> Result<Vec<String>, String> {
     }).await
 }
 
-/// Parse a pasted config blob (JSON or TOML) and add every MCP server it contains
+#[derive(serde::Serialize)]
+pub struct PastedMcpSummary {
+    name: String,
+    transport: &'static str,
+}
+
+/// Read-only preview using the same core parser as import. Return identities
+/// only: credentials and connection values never enter the preview response.
+#[tauri::command]
+pub async fn preview_pasted_config(text: String) -> CoreResult<Vec<PastedMcpSummary>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        mux_core::application::mcp::operations::parse_pasted_entries(&text)
+            .map(|entries| entries.into_iter().map(|entry| {
+                let transport = entry.transport();
+                PastedMcpSummary { name: entry.name, transport }
+            }).collect())
+            .map_err(|error| core_error_from_legacy(error, "invalid_config"))
+    }).await.map_err(|_| CoreError::new("worker_failed", "配置识别失败，请重试。"))?
+}
+
+/// Parse a pasted config blob (JSON, TOML or YAML) and add every MCP server it contains
 /// to the managed "manual" source. Returns the names that were added.
 #[tauri::command]
 pub async fn import_pasted_config(text: String) -> CoreResult<Vec<String>> {

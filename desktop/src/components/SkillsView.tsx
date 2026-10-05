@@ -43,6 +43,7 @@ import { SkillReviewDialog } from "./SkillReviewDialog";
 import { useToast } from "./Toast";
 import {
   ResourceWorkspace,
+  ResourceOverview,
   SidebarItem,
   SidebarSection,
   WorkspaceSidebar,
@@ -111,6 +112,9 @@ export function SkillsView({
   );
   const sources = useMemo(() => groupSkillSources(items), [items]);
   const selectedSource = sources.find((group) => group.id === source);
+  const sourceLocation = selectedSource?.category === "github"
+    ? `https://github.com/${selectedSource.path}`
+    : selectedSource?.path;
   const activeSource = selectedSource?.id ?? "all";
   const consumers = useMemo(() => skillConsumerAgents(state.inventory), [state.inventory]);
   const agentNames = useMemo(() => new Map(
@@ -524,14 +528,54 @@ export function SkillsView({
   return (
     <div className="mux-skill-workspace">
       <ResourceWorkspace
-        title={selectedSource
-          ? selectedSource.label || t("skillLibrary.unknown")
-          : "Skills"}
-        description={selectedSource
-          ? `${selectedSource.count} Skills · ${t(`skillLibrary.${selectedSource.category}`)}`
-          : t("skillLibrary.description")}
+        overview={
+          <ResourceOverview
+            eyebrow={selectedSource
+              ? `${t(`skillLibrary.${selectedSource.category}`)} · ${selectedSource.count} Skills`
+              : `${items.length} Skills · ${sources.length} ${t("skillLibrary.sources")}`}
+            title={selectedSource ? selectedSource.label || t("skillLibrary.unknown") : t("skillLibrary.all")}
+            description={selectedSource ? undefined : t("skillLibrary.description")}
+            icon={<ResourceIcon domain="skill" className="w-6 h-6" />}
+          >
+            {sourceLocation && <dl className="mux-resource-overview-facts">
+              <div>
+                <dt>{selectedSource?.category === "github" ? "GitHub" : t("skillLibrary.sources")}</dt>
+                <dd><code title={sourceLocation}>{sourceLocation}</code></dd>
+              </div>
+            </dl>}
+          </ResourceOverview>
+        }
         sidebar={
-          <WorkspaceSidebar title="Skills" count={items.length}>
+          <WorkspaceSidebar title="Skills" count={items.length}
+            actions={
+              <button
+                className="btn-primary"
+                type="button"
+                disabled={checkDisabled}
+                onClick={() => setInstallOpen(true)}
+              >
+                <PlusIcon className="w-4 h-4" />
+                添加 Skills
+              </button>
+            }
+            footer={
+              <button
+                className="btn-ghost"
+                type="button"
+                disabled={checkDisabled}
+                onClick={() => void checkUpdates()}
+              >
+                <span
+                  className="mux-skill-check-icon"
+                  data-busy={checking ? "true" : undefined}
+                  aria-hidden="true"
+                >
+                  <RefreshIcon className="w-4 h-4" />
+                </span>
+                {checking ? "检查中…" : "检查更新"}
+              </button>
+            }
+          >
             <SidebarSection title={t("skillLibrary.sources")}>
               <SidebarItem active={activeSource === "all"}
                 icon={<ResourceIcon domain="skill" className="w-3.5 h-3.5" />}
@@ -553,36 +597,8 @@ export function SkillsView({
         query={query}
         onQueryChange={changeQuery}
         searchPlaceholder={activeSource === "all" ? "搜索 Skills" : t("skillLibrary.searchSource")}
-        toolbarActions={
-          <>
-            <button
-              className="btn-secondary"
-              type="button"
-              disabled={checkDisabled}
-              onClick={() => void checkUpdates()}
-            >
-              <span
-                className="mux-skill-check-icon"
-                data-busy={checking ? "true" : undefined}
-                aria-hidden="true"
-              >
-                <RefreshIcon className="w-4 h-4" />
-              </span>
-              {checking ? "检查中…" : "检查更新"}
-            </button>
-            <button
-              className="btn-primary"
-              type="button"
-              disabled={checkDisabled}
-              onClick={() => {
-                setInstallOpen(true);
-              }}
-            >
-              <PlusIcon className="w-4 h-4" />
-              添加 Skills
-            </button>
-          </>
-        }
+        listLabel="Skills"
+        resultCount={filtered.length}
         inspector={
           selected ? (
             <SkillInspector

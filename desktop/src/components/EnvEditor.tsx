@@ -1,14 +1,18 @@
 import { useState, useEffect } from "react";
-import { PlusIcon, TrashIcon } from "./icons";
+import { useTranslation } from "react-i18next";
+import { EyeIcon, EyeOffIcon, PlusIcon, TrashIcon } from "./icons";
 
 let _uid = 0;
 const nextId = () => ++_uid;
 
-interface Row { id: number; k: string; v: string; }
+interface Row { id: number; k: string; v: string; revealed?: boolean; }
 
 interface EnvEditorProps {
   value: Record<string, string>;
   onChange: (env: Record<string, string>) => void;
+  onValidityChange?: (valid: boolean) => void;
+  kind?: "env" | "headers";
+  disabled?: boolean;
 }
 
 function rowsToEnv(rows: Row[]): Record<string, string> {
@@ -20,8 +24,18 @@ function envToRows(env: Record<string, string>): Row[] {
   return rows.length > 0 ? rows : [{ id: nextId(), k: "", v: "" }];
 }
 
-export function EnvEditor({ value, onChange }: EnvEditorProps) {
+export function EnvEditor({ value, onChange, onValidityChange, kind = "env", disabled = false }: EnvEditorProps) {
+  const { t } = useTranslation();
   const [rows, setRows] = useState<Row[]>(() => envToRows(value));
+  const normalizedKey = (key: string) => kind === "headers" ? key.trim().toLowerCase() : key.trim();
+  const errors = rows.map((row) => {
+    const key = normalizedKey(row.k);
+    if (!key) return row.v ? t("mcpEditor.missingKey") : "";
+    return rows.some((other) => other.id !== row.id && normalizedKey(other.k) === key)
+      ? t("mcpEditor.duplicateKey") : "";
+  });
+  const valid = errors.every((error) => !error);
+  useEffect(() => { onValidityChange?.(valid); }, [valid, onValidityChange]);
 
   // Resync only when the external value genuinely diverges from what we already
   // project (an external reset) — never clobber in-progress edits or churn on a
@@ -50,52 +64,68 @@ export function EnvEditor({ value, onChange }: EnvEditorProps) {
 
   const addRow = () => updateRows([...rows, { id: nextId(), k: "", v: "" }]);
 
-  const inputStyle = {
-    background: "var(--surface-app)",
-    border: "1px solid var(--border-hairline)",
-    color: "var(--text-primary)",
-    fontFamily: "var(--font-mono)",
-    fontSize: 11,
-    padding: "4px 8px",
-    borderRadius: 6,
-    outline: "none",
-    width: "100%",
-  } as const;
-
+  const label = t(kind === "headers" ? "mcpEditor.headers" : "mcpEditor.environment");
   return (
-    <div className="mt-2 space-y-1.5">
-      {rows.map((row) => (
-        <div key={row.id} className="flex items-center gap-1.5">
+    <div className="mux-key-value-editor">
+      {rows.map((row, index) => (
+        <div key={row.id} className="mux-key-value-item">
+        <div className="mux-key-value-row">
           <input
-            style={{ ...inputStyle, flex: "0 0 38%" }}
-            placeholder="KEY"
+            className="mux-dialog-input mux-dialog-input-mono"
+            placeholder={t(kind === "headers" ? "mcpEditor.header" : "mcpEditor.variable")}
+            aria-label={t("mcpEditor.keyLabel", { label, row: index + 1 })}
+            aria-invalid={!!errors[index] || undefined}
             value={row.k}
             onChange={(e) => setKey(row.id, e.target.value)}
+            disabled={disabled}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
           />
-          <span style={{ color: "var(--text-secondary)", fontSize: 11, flexShrink: 0 }}>=</span>
+          <div className="mux-key-value-value">
           <input
-            style={{ ...inputStyle, flex: 1 }}
-            placeholder="value"
+            className="mux-dialog-input mux-dialog-input-mono"
+            type={row.revealed ? "text" : "password"}
+            placeholder={t("mcpEditor.value")}
+            aria-label={t("mcpEditor.valueLabel", { label, row: index + 1 })}
             value={row.v}
             onChange={(e) => setVal(row.id, e.target.value)}
+            disabled={disabled}
+            spellCheck={false}
+            autoComplete="off"
+            autoCapitalize="off"
+            autoCorrect="off"
           />
+          <button type="button" className="mux-key-value-reveal" disabled={disabled}
+            aria-label={t(row.revealed ? "mcpEditor.hideValue" : "mcpEditor.showValue", { row: index + 1 })}
+            title={t(row.revealed ? "mcpEditor.hideValue" : "mcpEditor.showValue", { row: index + 1 })}
+            aria-pressed={!!row.revealed}
+            onClick={() => setRows(rows.map((item) => item.id === row.id ? { ...item, revealed: !item.revealed } : item))}>
+            {row.revealed ? <EyeOffIcon className="w-3.5 h-3.5" /> : <EyeIcon className="w-3.5 h-3.5" />}
+          </button>
+          </div>
           <button
+            type="button"
             onClick={() => removeRow(row.id)}
-            className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded opacity-50 hover:opacity-100 border-0 bg-transparent cursor-pointer"
-            style={{ color: "var(--text-secondary)" }}
-            title="删除"
+            className="mux-key-value-delete"
+            title={t("mcpEditor.deleteRow", { row: index + 1 })}
+            aria-label={t("mcpEditor.deleteRow", { row: index + 1 })}
+            disabled={disabled}
           >
             <TrashIcon className="w-3.5 h-3.5" />
           </button>
         </div>
+        {errors[index] && <small className="mux-mcp-field-error">{errors[index]}</small>}
+        </div>
       ))}
       <button
+        type="button"
         onClick={addRow}
-        className="flex items-center gap-1 text-xs mt-1 border-0 bg-transparent cursor-pointer px-0"
-        style={{ color: "#007AFF" }}
+        className="mux-key-value-add"
+        disabled={disabled}
       >
         <PlusIcon className="w-3.5 h-3.5" />
-        <span>添加变量</span>
+        <span>{t(kind === "headers" ? "mcpEditor.addHeader" : "mcpEditor.addVariable")}</span>
       </button>
     </div>
   );

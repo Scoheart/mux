@@ -635,6 +635,12 @@ body {
 .mux-workspace-sidebar-head strong { color: var(--text-primary); font-size: 16px; font-weight: 720; }
 .mux-workspace-sidebar-head span { color: var(--text-secondary); font-size: 10px; font-variant-numeric: tabular-nums; }
 .mux-workspace-sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 10px 16px; }
+.mux-workspace-sidebar-actions { display: grid; gap: 7px; flex-shrink: 0; padding: 0 14px 16px; }
+.mux-workspace-sidebar-actions > button { justify-content: flex-start; width: 100%; }
+.mux-sidebar-action-pair { display: flex; flex-wrap: wrap; gap: 6px; }
+.mux-sidebar-action-pair > button { flex: 1 0 auto; padding-inline: 8px; font-size: 11px; }
+.mux-workspace-sidebar-footer { flex-shrink: 0; margin: 0 14px; padding: 10px 0; border-top: 1px solid var(--border-subtle); }
+.mux-workspace-sidebar-footer > button { justify-content: flex-start; width: 100%; }
 .mux-workspace-sidebar-resize {
   position: absolute; z-index: 10; top: 0; right: -4px; bottom: 0; width: 7px; padding: 0;
   border: 0; outline: 0; background: transparent; cursor: col-resize;
@@ -669,6 +675,8 @@ body {
 .mux-sidebar-item-count { flex: 0 0 auto; color: var(--text-secondary); font-size: 10px; font-variant-numeric: tabular-nums; }
 .mux-sidebar-item-actions { align-items: center; gap: 1px; }
 .mux-sidebar-item-actions .mux-icon-btn { width: 24px; height: 24px; border-radius: 5px; }
+.mux-sidebar-item:focus-within .mux-sidebar-item-actions { display: flex; }
+.mux-sidebar-item:focus-within .mux-sidebar-item-count:has(+ .mux-sidebar-item-actions) { display: none; }
 .mux-sidebar-empty { padding: 10px 8px; color: var(--text-secondary); font-size: 11px; }
 .mux-sidebar-more {
   display: flex; align-items: center; gap: 6px; width: 100%; height: 28px; margin-top: 2px; padding: 0 10px;
@@ -685,10 +693,44 @@ body {
 .mux-workspace-intro h1 { margin: 0; color: var(--text-primary); font-size: 22px; font-weight: 730; letter-spacing: -.025em; }
 .mux-workspace-intro p { margin: 6px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
 .mux-workspace-toolbar {
-  display: grid; grid-template-columns: minmax(180px, 1fr) auto; align-items: center; gap: 12px;
-  min-height: 52px; padding: 8px;
-  border: 0; border-radius: var(--radius-row); background: var(--surface-section);
+  display: flex; flex-shrink: 0; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  min-height: 32px; padding: 0 4px;
 }
+.mux-workspace-list-heading { display: flex; align-items: center; gap: 7px; margin: 0; color: var(--text-primary); font-size: 12px; font-weight: 650; }
+.mux-workspace-list-heading > span { color: var(--text-secondary); font-size: 10px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.mux-workspace-toolbar > .mux-search { flex: 0 1 320px; min-width: 0; height: 32px; margin-left: auto; }
+.mux-workspace-toolbar > .mux-search input { height: 32px; }
+.mux-workspace-toolbar .mux-search-clear { top: 3px; }
+.mux-resource-overview { flex-shrink: 0; min-width: 0; padding: 4px 4px 8px; }
+.mux-resource-overview-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.mux-resource-overview-icon {
+  display: flex; flex-shrink: 0; align-items: center; justify-content: center; width: 48px; height: 48px;
+  border: 1px solid var(--border-hairline); border-radius: 14px; background: var(--surface-control); color: var(--color-blue);
+}
+.mux-resource-overview-identity { flex: 1; min-width: 120px; }
+.mux-resource-overview-eyebrow { color: var(--text-secondary); font-size: 10px; font-weight: 550; }
+.mux-resource-overview h1 {
+  margin: 2px 0 0; color: var(--text-primary); font-size: 22px; font-weight: 730; letter-spacing: -.025em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mux-resource-overview-identity p { margin: 5px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
+.mux-resource-overview-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-left: auto; }
+.mux-resource-overview-details { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-subtle); }
+.mux-resource-overview-facts { display: flex; flex-wrap: wrap; gap: 12px 24px; margin: 0; }
+.mux-resource-overview-facts > div { flex: 1 1 200px; min-width: 0; }
+.mux-resource-overview-facts > .mux-resource-overview-location { flex: 2 1 260px; }
+.mux-resource-overview-facts dt { margin-bottom: 5px; color: var(--text-secondary); font-size: 10px; }
+.mux-resource-overview-facts dd { margin: 0; color: var(--text-primary); font-size: 11px; line-height: 1.5; }
+.mux-resource-overview-facts code {
+  display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow-wrap: anywhere; user-select: text; font: 11px/1.5 var(--font-mono);
+}
+.mux-resource-overview-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.mux-resource-overview-tags > span { padding: 2px 6px; border-radius: 5px; background: var(--surface-section); font-size: 10px; }
+.mux-resource-overview-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-top: 8px; }
+.mux-resource-overview-links .btn-ghost { min-height: 28px; padding: 4px 0; font-size: 11px; }
+.mux-resource-overview-credential { display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); font-size: 10px; }
+.mux-resource-overview-credential[data-saved] { color: var(--color-green); }
 .mux-workspace-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
 .mux-workspace-filters {
   display: flex; align-items: center; height: 42px; min-height: 42px; padding: 4px 6px;
@@ -823,28 +865,6 @@ body {
 .mux-resource-card-fact {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary);
 }
-.mux-model-provider-banner {
-  display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px;
-  margin: 0 6px 10px; padding: 2px 2px 10px; border-bottom: 1px solid var(--border-subtle);
-}
-.mux-model-provider-banner-identity {
-  display: flex; min-width: 0; align-items: center; gap: 9px;
-}
-.mux-model-provider-banner-copy {
-  display: flex; min-width: 0; align-items: center; gap: 8px;
-  color: var(--text-secondary); font-size: 10px;
-}
-.mux-model-provider-banner-copy strong {
-  min-width: 0; overflow: hidden; color: var(--text-primary); font-size: 13px;
-  text-overflow: ellipsis; white-space: nowrap;
-}
-.mux-model-provider-credential {
-  display: inline-flex; width: 22px; height: 22px; flex: 0 0 22px; align-items: center; justify-content: center;
-  border-radius: 6px; background: var(--surface-control); color: var(--text-tertiary);
-}
-.mux-model-provider-credential[data-saved="true"] {
-  background: color-mix(in srgb, var(--color-green) 11%, transparent); color: var(--color-green);
-}
 :where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list {
   display: grid; width: min(100%, 1280px); min-width: 0; margin: 6px auto;
   grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 8px;
@@ -921,6 +941,34 @@ body {
 }
 .mux-model-list-row .mux-model-list-identity { grid-area: identity; }
 .mux-model-card { position: relative; }
+.mux-model-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 30px; padding-inline: 4px; }
+.mux-model-section-heading h2 { display: flex; align-items: baseline; gap: 7px; margin: 0; color: var(--text-primary); font-size: 12px; font-weight: 650; }
+.mux-model-section-heading h2 > span { color: var(--text-secondary); font-size: 10px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.mux-model-section-heading .btn-ghost { min-height: 28px; padding: 4px 6px; font-size: 10px; }
+.mux-model-catalog-section { margin-top: 18px; }
+.mux-model-manual-card {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 78px; padding: 10px 14px;
+  border: 1px dashed color-mix(in srgb, var(--color-blue) 36%, var(--border-hairline)); border-radius: 10px;
+  background: transparent; color: var(--color-blue); text-align: left; cursor: pointer;
+}
+.mux-model-manual-card:hover:not(:disabled) { border-color: var(--color-blue); background: var(--surface-selected); }
+.mux-model-manual-card:disabled { opacity: .45; cursor: default; }
+.mux-model-manual-card:focus-visible { outline: 2px solid var(--color-blue); outline-offset: 2px; }
+.mux-model-manual-icon { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 34px; border-radius: 9px; background: var(--surface-selected); }
+.mux-model-manual-card strong { display: block; font-size: 12px; font-weight: 650; }
+.mux-model-manual-card small { display: block; margin-top: 5px; color: var(--text-secondary); font-size: 10px; }
+.mux-model-candidate-card { min-width: 0; padding: 12px; border: 1px solid var(--border-hairline); border-radius: 10px; background: var(--surface-control); }
+.mux-model-candidate-facts { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 9px; color: var(--text-secondary); font-size: 10px; }
+.mux-model-candidate-facts > span:first-child { color: var(--color-blue); }
+.mux-model-candidate-controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+.mux-model-candidate-controls > span { min-width: 0; color: var(--text-secondary); font-size: 10px; }
+.mux-model-candidate-controls .mux-form-select { flex: 1; min-width: 0; max-width: 230px; }
+.mux-model-candidate-controls .mux-model-field { min-height: 30px; height: 30px; padding: 4px 8px; font-size: 10px; }
+.mux-model-candidate-controls .btn-secondary { flex-shrink: 0; min-height: 30px; padding: 5px 9px; font-size: 11px; }
+.mux-model-candidate-list > [role="listitem"]:focus-within { position: relative; z-index: 2; }
+.mux-model-catalog-notice { margin: 8px 4px; color: var(--text-secondary); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.mux-model-candidate-error { margin: 9px 0 0; color: var(--color-red); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.mux-model-catalog-more { display: flex; margin: 10px auto 0; font-size: 11px; }
 .mux-models-workspace .mux-model-card .mux-model-list-row { padding-right: 86px; }
 .mux-model-card-actions { position: absolute; top: 10px; right: 10px; display: flex; gap: 4px; }
 .mux-model-card-action {
@@ -1133,10 +1181,87 @@ body {
 .mux-dialog-input { height: 34px; padding: 0 10px; font: 11px/1 var(--font-sans); }
 .mux-dialog-input-mono { font-family: var(--font-mono); }
 .mux-paste-config-input { min-height: 230px; padding: 10px 11px; resize: vertical; font: 10px/1.55 var(--font-mono); }
-.mux-mcp-add-modes { margin-bottom: 16px; }
-.mux-mcp-paste-fields { display: grid; gap: 10px; }
+.mux-dialog-mcp-editor .mux-dialog-shell-header { min-height: 72px; gap: 12px; padding: 16px 20px; }
+.mux-dialog-mcp-editor .mux-dialog-shell-heading h2 { font-size: 16px; font-weight: 720; }
+.mux-dialog-mcp-editor .mux-dialog-shell-body { padding: 18px 20px; }
+.mux-dialog-mcp-editor .mux-dialog-shell-footer { padding-inline: 20px; }
+.mux-dialog-mcp-editor .mux-dialog-shell-footer-start { max-width: 31ch; font-size: 10px; line-height: 1.5; }
+.mux-mcp-add-modes { width: fit-content; margin-bottom: 18px; }
+.mux-mcp-add-modes .mux-seg-item { min-height: 30px; padding-inline: 16px; font-size: 12px; }
+.mux-mcp-add-modes .mux-seg-item[aria-pressed="true"] { background: var(--surface-selected); color: var(--color-blue); }
+.mux-mcp-form.mux-mcp-editor-form { min-width: 0; margin: 0; padding: 0; gap: 16px; border: 0; overflow: visible; }
+.mux-mcp-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.mux-mcp-connection-fields { display: grid; min-width: 0; gap: 16px; }
+.mux-mcp-field { display: grid; min-width: 0; gap: 6px; margin: 0; }
+.mux-mcp-field > span { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+.mux-mcp-field > span > small { color: var(--text-tertiary); font-size: 10px; font-weight: 400; }
+.mux-mcp-editor-form .mux-dialog-input,
+.mux-mcp-editor-form .mux-model-field { height: 36px; border-radius: 8px; padding-inline: 11px; font-size: 12px; }
+.mux-mcp-editor-form .mux-dialog-input[readonly] { color: var(--text-secondary); background: var(--surface-section); }
+.mux-mcp-editor-form .mux-dialog-input[aria-invalid="true"] { border-color: var(--color-red); }
+.mux-mcp-editor-form .mux-mcp-args { height: 80px; min-height: 80px; max-height: 200px; padding-block: 8px; resize: vertical; font: 12px/1.65 var(--font-mono); }
+.mux-mcp-connection-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.mux-mcp-connection-picker > label { position: relative; display: flex; min-width: 0; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--border-hairline); border-radius: 10px; background: var(--surface-control); cursor: pointer; }
+.mux-mcp-connection-picker > label[data-selected] { border-color: var(--color-blue); background: color-mix(in srgb, var(--color-blue) 5%, var(--surface-control)); }
+.mux-mcp-connection-picker > label[data-disabled] { cursor: default; }
+.mux-mcp-connection-picker > label:not([data-disabled]):hover { border-color: color-mix(in srgb, var(--color-blue) 45%, var(--border-hairline)); }
+.mux-mcp-connection-picker input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.mux-mcp-connection-picker label:has(input:focus-visible) { outline: 2px solid var(--color-blue); outline-offset: 2px; }
+.mux-mcp-connection-picker svg { width: 22px; height: 22px; flex-shrink: 0; color: var(--text-secondary); }
+.mux-mcp-connection-picker [data-selected] svg { color: var(--color-blue); }
+.mux-mcp-connection-picker label > span { display: grid; min-width: 0; gap: 4px; flex: 1; }
+.mux-mcp-connection-picker strong { color: var(--text-primary); font-size: 12px; font-weight: 650; }
+.mux-mcp-connection-picker small { color: var(--text-secondary); font-size: 10px; }
+.mux-mcp-connection-picker label > i { width: 12px; height: 12px; flex: 0 0 12px; border: 1px solid var(--border-hairline); border-radius: 50%; background: var(--surface-control); }
+.mux-mcp-connection-picker [data-selected] > i { border: 4px solid var(--color-blue); }
+.mux-mcp-remote-fields { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 14px; }
+.mux-mcp-field-section { padding-top: 14px; border-top: 1px solid var(--border-hairline); }
+.mux-mcp-field-error { margin: 0; color: var(--color-red); font-size: 10px; line-height: 1.45; }
+.mux-mcp-override-note strong { font-size: 12px; }
+.mux-mcp-override-note p { margin: 3px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+.mux-key-value-editor { display: grid; min-width: 0; gap: 8px; }
+.mux-key-value-item { display: grid; gap: 4px; }
+.mux-key-value-row { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr) 28px; align-items: center; gap: 8px; }
+.mux-key-value-value { position: relative; min-width: 0; }
+.mux-key-value-value > input { padding-right: 34px !important; }
+.mux-key-value-reveal,
+.mux-key-value-delete { display: flex; width: 28px; height: 28px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--text-tertiary); cursor: pointer; }
+.mux-key-value-reveal { position: absolute; top: 50%; right: 4px; transform: translateY(-50%); }
+.mux-key-value-reveal:hover { color: var(--text-primary); background: var(--surface-section); }
+.mux-key-value-delete:hover { color: var(--color-red); background: color-mix(in srgb, var(--color-red) 8%, transparent); }
+.mux-key-value-add { display: inline-flex; width: fit-content; align-items: center; gap: 5px; padding: 3px 0; border: 0; background: transparent; color: var(--color-blue); font-size: 11px; font-weight: 500; cursor: pointer; }
+.mux-key-value-editor button:focus-visible { outline: 2px solid var(--color-blue); outline-offset: 2px; }
+.mux-key-value-editor button:disabled { opacity: .5; cursor: default; }
+.mux-mcp-paste-fields { display: grid; gap: 14px; }
 .mux-mcp-paste-fields p { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
-.mux-mcp-paste-fields .mux-paste-config-input { min-height: 250px; font-size: 12px; }
+.mux-mcp-code-editor { overflow: hidden; border: 1px solid var(--border-hairline); border-radius: 10px; background: var(--surface-control); }
+.mux-mcp-code-editor:focus-within { border-color: var(--color-blue); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 10%, transparent); }
+.mux-mcp-code-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border-hairline); background: var(--surface-section); }
+.mux-mcp-code-toolbar > span { color: var(--text-secondary); font: 11px/1 var(--font-mono); }
+.mux-mcp-code-toolbar i { padding-inline: 3px; color: var(--text-tertiary); font-style: normal; }
+.mux-mcp-code-toolbar > div { display: flex; gap: 10px; }
+.mux-mcp-code-toolbar button { padding: 2px 0; border: 0; background: transparent; color: var(--color-blue); font-size: 11px; cursor: pointer; }
+.mux-mcp-code-toolbar button:disabled { color: var(--text-tertiary); cursor: default; }
+.mux-mcp-paste-fields .mux-paste-config-input { display: block; min-height: 240px; max-height: 320px; padding: 12px 14px; border: 0; border-radius: 0; resize: vertical; font: 12px/1.7 var(--font-mono); background: transparent; box-shadow: none; }
+.mux-mcp-paste-fields .mux-paste-config-input:focus { box-shadow: none; }
+.mux-mcp-paste-result { display: grid; gap: 8px; }
+.mux-mcp-paste-result > strong { color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.mux-mcp-paste-result p.mux-mcp-field-error { color: var(--color-red); font-size: 11px; }
+.mux-mcp-paste-result ul { display: grid; max-height: 150px; overflow-y: auto; margin: 0; padding: 0; gap: 6px; list-style: none; }
+.mux-mcp-paste-result li { display: flex; min-width: 0; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border-hairline); border-radius: 7px; background: var(--surface-control); }
+.mux-mcp-import-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); font-size: 12px; font-weight: 550; }
+.mux-mcp-paste-result code { color: var(--text-tertiary); font: 10px/1 var(--font-mono); }
+.mux-mcp-import-action { color: var(--color-blue); font-size: 10px; }
+.mux-mcp-import-action[data-update] { color: var(--text-secondary); }
+@media (max-height: 640px) {
+  .mux-dialog-mcp-editor .mux-dialog-shell-header { min-height: 60px; padding-block: 12px; }
+  .mux-dialog-mcp-editor .mux-dialog-shell-body { padding-block: 14px; }
+  .mux-mcp-paste-fields .mux-paste-config-input { min-height: 180px; }
+}
+@media (max-width: 520px) {
+  .mux-mcp-field-grid, .mux-mcp-remote-fields { grid-template-columns: minmax(0, 1fr); }
+  .mux-mcp-code-toolbar { flex-wrap: wrap; }
+}
 .mux-dialog-input:focus,
 .mux-paste-config-input:focus { border-color: color-mix(in srgb, var(--color-blue) 58%, var(--border-hairline)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 10%, transparent); }
 .mux-dialog-paste-config .mux-dialog-shell-subtitle code { font: 9px/1.4 var(--font-mono); }
@@ -1236,6 +1361,12 @@ body {
   .mux-inspector-field { grid-template-columns: 22px 68px minmax(0, 1fr) auto; }
 }
 @media (max-height: 640px) {
+  .mux-resource-overview { padding-bottom: 4px; }
+  .mux-resource-overview-details { margin-top: 8px; padding-top: 8px; }
+  .mux-resource-overview-icon { width: 40px; height: 40px; border-radius: 12px; }
+  .mux-resource-overview h1 { font-size: 20px; }
+  .mux-workspace-sidebar-head { min-height: 56px; padding-top: 16px; }
+  .mux-workspace-sidebar-actions { padding-bottom: 10px; }
   .mux-dialog-shell-body,
   .mux-resource-inspector-body { padding-top: 12px; padding-bottom: 12px; }
   .mux-picker-list { max-height: calc(100vh - 190px); }
@@ -1781,7 +1912,6 @@ body {
 .mux-skill-assignment-list input[role="switch"] { width: 30px; height: 17px; flex: 0 0 30px; accent-color: var(--color-green); }
 
 @media (max-width: 920px) {
-  .mux-workspace-toolbar { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding-right: 12px; padding-left: 12px; }
   .mux-workspace-filters { padding-right: 10px; padding-left: 10px; overflow-x: auto; }
   .mux-resource-tabs { min-width: max-content; }
   .mux-resource-tab { padding-right: 7px; padding-left: 7px; }
@@ -2366,6 +2496,43 @@ body {
 .mux-config-review li > code { overflow-wrap: anywhere; }
 .mux-asset-review-warnings { padding: 10px !important; border: 0 !important; border-radius: 7px !important; background: var(--surface-attention) !important; }
 
+/* Model editor: fixed Provider context, all fields visible. */
+.mux-dialog-model-editor .mux-dialog-shell-header { min-height: 76px; gap: 12px; padding: 16px 20px; }
+.mux-dialog-model-editor .mux-dialog-shell-heading h2 { font-size: 16px; font-weight: 720; }
+.mux-dialog-model-editor .mux-dialog-shell-subtitle { margin-top: 4px; font-size: 12px; }
+.mux-dialog-model-editor .mux-dialog-shell-body { padding: 20px; }
+.mux-dialog-model-editor .mux-dialog-shell-footer { padding-inline: 20px; }
+.mux-model-editor-avatar { display: flex; align-items: center; justify-content: center; flex: 0 0 42px; width: 42px; height: 42px; border: 1px solid var(--border-hairline); border-radius: 12px; background: var(--surface-control); }
+.mux-model-editor-provider-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.mux-model-editor-provider-select { width: min(240px, 100%); }
+.mux-model-editor-provider-select .mux-model-field { height: 26px; padding: 0 7px; font-size: 11px; }
+.mux-model-form.mux-model-editor-form { gap: 16px; overflow: visible; }
+.mux-model-editor-form .mux-model-form-grid { gap: 14px; }
+.mux-model-editor-form .mux-model-field { height: 38px; padding-inline: 12px; border-radius: 9px; }
+.mux-model-editor-form .mux-model-editor-id > input { height: 42px; font: 13px/1 var(--font-mono); }
+.mux-model-editor-limits { padding-top: 14px; border-top: 1px solid var(--border-hairline); }
+.mux-model-editor-limits label > span { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.mux-model-editor-limits label > span > small { color: var(--text-tertiary); font-size: 9px; font-weight: 400; }
+.mux-model-editor-form small[data-error] { color: var(--color-red); font-size: 10px; }
+.mux-model-editor-form input[aria-invalid="true"] { border-color: var(--color-red); }
+.mux-model-reasoning-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; padding: 3px; border: 1px solid var(--border-hairline); border-radius: 9px; background: var(--surface-section); }
+.mux-model-reasoning-options > label { position: relative; min-width: 0; cursor: pointer; }
+.mux-model-reasoning-options > label > input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.mux-model-reasoning-options > label > span { display: flex; align-items: center; justify-content: center; height: 28px; margin: 0; border-radius: 6px; color: var(--text-secondary); font-size: 11px; font-weight: 500; }
+.mux-model-reasoning-options > label:hover > span { color: var(--text-primary); }
+.mux-model-reasoning-options input:checked + span { background: var(--surface-control); color: var(--color-blue); box-shadow: var(--shadow-card); }
+.mux-model-reasoning-options input:focus-visible + span { outline: 2px solid var(--color-blue); outline-offset: 1px; }
+.mux-model-editor-endpoint { padding: 10px 12px 12px; border-radius: 10px; background: var(--surface-section); }
+.mux-model-editor-endpoint > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-secondary); font-size: 10px; }
+.mux-model-editor-endpoint .mux-model-card-action { width: 24px; height: 24px; }
+.mux-model-editor-endpoint > code { display: block; margin-top: 3px; color: var(--text-primary); font: 11px/1.6 var(--font-mono); overflow-wrap: anywhere; user-select: text; }
+@media (max-height: 640px) {
+  .mux-dialog-model-editor .mux-dialog-shell-header { min-height: 64px; padding-block: 12px; }
+  .mux-dialog-model-editor .mux-dialog-shell-body { padding-block: 14px; }
+  .mux-model-form.mux-model-editor-form { gap: 12px; }
+  .mux-model-editor-limits { padding-top: 12px; }
+}
+
 /* Shared MCP / Model forms */
 .mux-model-form,
 .mux-mcp-form { display: flex; flex-direction: column; gap: 14px; padding: 0; overflow-y: auto; border-radius: 0; background: transparent; }
@@ -2378,45 +2545,6 @@ body {
 .mux-model-field { box-sizing: border-box; width: 100%; height: 36px; min-width: 0; padding: 0 10px; border: 1px solid var(--border-hairline); border-radius: 6px; outline: 0; appearance: none; background: var(--surface-raised); color: var(--text-primary); font: 12px/1 var(--font-sans); }
 .mux-model-field:focus { border-color: color-mix(in srgb, var(--color-blue) 62%, var(--border-hairline)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 10%, transparent); }
 .mux-model-field:disabled { opacity: .55; cursor: not-allowed; }
-.mux-provider-model-picker { position: relative; min-width: 0; grid-column: 1 / -1; align-self: start; }
-.mux-provider-model-input { display: flex; min-width: 0; }
-.mux-provider-model-input .mux-model-field { border-radius: 6px 0 0 6px; }
-.mux-provider-model-refresh {
-  display: inline-flex; width: 36px; height: 36px; flex: 0 0 36px; align-items: center; justify-content: center;
-  border: 1px solid var(--border-hairline); border-left: 0; border-radius: 0 6px 6px 0;
-  background: var(--surface-control); color: var(--text-secondary); cursor: pointer;
-}
-.mux-provider-model-refresh:hover:not(:disabled) { background: var(--surface-hover); color: var(--text-primary); }
-.mux-provider-model-refresh:focus-visible { position: relative; z-index: 1; outline: 2px solid color-mix(in srgb, var(--color-blue) 24%, transparent); outline-offset: 1px; }
-.mux-provider-model-refresh:disabled { opacity: .62; cursor: wait; }
-.mux-provider-model-refresh[aria-busy="true"] svg { animation: spin .8s linear infinite; }
-.mux-provider-model-status { min-height: 13px; margin-top: 5px; color: var(--text-tertiary); font-size: 9px; line-height: 1.45; overflow-wrap: anywhere; }
-.mux-provider-model-status[data-status="error"] { color: var(--color-red); }
-.mux-provider-model-options {
-  position: absolute; z-index: 620; top: calc(100% + 5px); right: 0; left: 0;
-  max-height: 232px; padding: 4px; overflow-y: auto; border: 1px solid var(--border-hairline);
-  border-radius: 9px; background: var(--surface-popover); box-shadow: var(--shadow-sheet);
-  animation: mux-form-select-in .12s ease-out;
-}
-.mux-provider-model-option {
-  display: flex; width: 100%; min-height: 42px; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text-primary);
-  font: 11px/1.3 var(--font-sans); text-align: left; cursor: pointer;
-}
-.mux-provider-model-option:hover,
-.mux-provider-model-option:focus-visible { outline: 0; background: var(--surface-selected); }
-.mux-provider-model-option[aria-selected="true"] { color: var(--color-blue); }
-.mux-provider-model-option > span { min-width: 0; }
-.mux-provider-model-option strong,
-.mux-provider-model-option code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mux-provider-model-option strong { font-weight: 620; }
-.mux-provider-model-option code { margin-top: 3px; color: var(--text-tertiary); font: 9px/1.2 var(--font-mono); }
-.mux-provider-model-option small { flex: 0 0 auto; color: var(--text-tertiary); font: 9px/1 var(--font-mono); }
-.mux-provider-model-empty,
-.mux-provider-model-limit { padding: 9px 8px; color: var(--text-tertiary); font-size: 9px; line-height: 1.45; }
-.mux-model-url-preview { background: color-mix(in srgb, var(--surface-control) 74%, var(--surface-raised)); color: var(--text-secondary); font: 10px/1 var(--font-mono); }
-.mux-model-provider-required { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 7px; }
-.mux-model-provider-required small { color: var(--color-red); font-size: 9px; line-height: 1.4; }
 .mux-form-select { position: relative; width: 100%; }
 .mux-form-select[data-open="true"] { z-index: 621; }
 .mux-form-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; cursor: pointer; }
@@ -2433,8 +2561,6 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .mux-form-select-menu { animation: none; }
   .mux-form-select-chevron { transition: none; }
-  .mux-provider-model-options,
-  .mux-provider-model-refresh[aria-busy="true"] svg { animation: none; }
 }
 .mux-model-check { display: inline-flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 11px; }
 .mux-model-check input { accent-color: var(--color-blue); }

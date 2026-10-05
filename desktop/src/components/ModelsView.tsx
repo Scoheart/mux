@@ -1,11 +1,10 @@
 import { ResourceIcon } from "./resourcePresentation";
-import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useModelObservationRevision } from "../lib/modelObservation";
 import { cachedModelLibrary, loadModelLibrary } from "../lib/modelLibrary";
 import { useTranslation } from "react-i18next";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
-  discoverProviderModels,
   copyToClipboard,
   exportModelCurl,
   revealModelProviderCredential,
@@ -25,6 +24,7 @@ import type {
 } from "../lib/types";
 import { formatError } from "../lib/format";
 import { requiresAgentReview } from "../lib/agentOperation";
+import { ManualModelCard, ProviderModelCatalog } from "./ProviderModelCatalog";
 import {
   getCachedModelsDevMetadata,
   loadModelsDevMetadata,
@@ -33,7 +33,6 @@ import {
 import { Avatar, Badge } from "./ui";
 import { ResourceState } from "./ResourceState";
 import { DialogShell } from "./DialogShell";
-import { DialogDisclosure } from "./DialogDisclosure";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import { FormSelect } from "./FormSelect";
 import { ProviderGlyph } from "./providerIcons";
@@ -63,6 +62,7 @@ import {
   InspectorMetric,
   InspectorMetrics,
   ResourceInspector,
+  ResourceOverview,
   ResourceWorkspace,
   SidebarItem,
   SidebarSection,
@@ -91,14 +91,6 @@ const emptyProfile = (): ModelProfile => ({
   base_url: "",
   model: "",
 });
-
-type ProviderModelDiscoveryState = {
-  status: "loading" | "success" | "error";
-  models: ProviderModelSummary[];
-  error?: string;
-};
-
-const MAX_VISIBLE_DISCOVERY_MODELS = 100;
 
 function protocolLabel(protocol: ModelProtocol) {
   return PROTOCOLS.find((item) => item.id === protocol)?.label ?? protocol;
@@ -368,6 +360,8 @@ export function ModelsView({
   const [loading, setLoading] = useState(!initialLibrary);
   const [readError, setReadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [addingCatalogId, setAddingCatalogId] = useState<string | null>(null);
+  const catalogAddPending = useRef(false);
   const deferredQuery = useDeferredValue(query);
   const [modelsDevByProfileId, setModelsDevByProfileId] = useState<Record<string, ModelsDevMetadata>>({});
   const toast = useToast();
@@ -448,14 +442,19 @@ export function ModelsView({
   const saveDraft = async (draft: CentralAssetDraft) => {
     if (!consumptionState) throw new Error(t("models.saveUnavailable"));
     const plan = await consumptionState.planUpdate(draft, { reviewOnlyWhenNeeded: true });
-    if (requiresAgentReview(plan)) return;
+    if (requiresAgentReview(plan)) return false;
     await consumptionState.commit({ background: true });
     toast.show({ kind: "success", msg: t("models.saved") });
-    refreshAfterSave();
+    await refresh(true).catch((error) => setReadError(formatError(error)));
+    return true;
   };
 
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
   const selectedProvider = providerInstances.find((provider) => provider.id === providerFilter) ?? null;
+  const creationDisabled = !consumptionState || consumptionState.committing || Boolean(consumptionState.plan) || addingCatalogId !== null;
+  const selectedProviderProtocols = selectedProvider
+    ? PROTOCOLS.filter(({ id }) => selectedProvider.protocols[id]).map(({ id, label }) => ({ value: id, label }))
+    : [];
   const { official: officialProviders, custom: customProviders } = useMemo(
     () => partitionProviderInstances(providerInstances, providers),
     [providerInstances, providers],
@@ -496,14 +495,79 @@ export function ModelsView({
       toast.show({ kind: "error", msg: t("models.cannotDelete", { error: formatError(error) }) });
     }
   }, [consumptionState?.planDelete, toast.show, t]);
+  const createManualModel = () => {
+    if (!selectedProvider || creationDisabled) return;
+    clearSelection();
+    setCreatingForProviderId(selectedProvider.id);
+    setEditing(null);
+  };
+  const addCatalogModel = async (model: ProviderModelSummary, protocol: ModelProtocol) => {
+    if (!selectedProvider || creationDisabled || catalogAddPending.current) return false;
+    catalogAddPending.current = true;
+    setAddingCatalogId(model.id);
+    try {
+      return await saveDraft({
+        domain: "model",
+        profile: {
+          ...emptyProfile(),
+          name: model.name || "",
+          provider_id: selectedProvider.id,
+          provider: selectedProvider.provider,
+          model: model.id,
+          protocol,
+          base_url: selectedProvider.base_url,
+          ...(model.context_length != null && model.context_length > 0
+            ? { context_window: model.context_length } : {}),
+        },
+      });
+    } finally {
+      catalogAddPending.current = false;
+      setAddingCatalogId(null);
+    }
+  };
 
   return (
     <div className="mux-models-workspace">
       <ResourceWorkspace
-        title={t("models.title")}
-        description={t("models.description")}
+        overview={selectedProvider ? (
+          <ProviderOverview
+            provider={selectedProvider}
+            portal={selectedProvider.portal}
+            onEdit={consumptionState ? () => setEditingProvider(selectedProvider) : undefined}
+            onDelete={consumptionState ? async () => {
+              try {
+                await consumptionState.planDelete({
+                  domain: "model-provider",
+                  provider_id: selectedProvider.id,
+                });
+              } catch (error) {
+                toast.show({
+                  kind: "error",
+                  msg: t("models.cannotDeleteProvider", { error: formatError(error) }),
+                });
+              }
+            } : undefined}
+          />
+        ) : (
+          <ResourceOverview
+            eyebrow={`${profiles.length} Models · ${providerInstances.length} Providers`}
+            title={t("models.allModels")}
+            description={t("models.description")}
+            icon={<ResourceIcon domain="model" className="w-6 h-6" />}
+          />
+        )}
         sidebar={
-          <WorkspaceSidebar title={t("models.title")} count={profiles.length}>
+          <WorkspaceSidebar title={t("models.title")} count={profiles.length}
+            actions={
+              <button className="btn-primary" type="button" disabled={creationDisabled} onClick={() => {
+                clearSelection();
+                setProviderCatalogOpen(true);
+              }}>
+                <PlusIcon className="w-4 h-4" />
+                {t("models.addProvider")}
+              </button>
+            }
+          >
             <SidebarSection title={t("models.library")}>
               <SidebarItem
                 active={providerFilter === null}
@@ -530,30 +594,8 @@ export function ModelsView({
         query={query}
         onQueryChange={(value) => { clearSelection(); setQuery(value); }}
         searchPlaceholder={t("models.search")}
-        toolbarActions={
-          <>
-            <button className="btn-secondary" type="button" disabled={!consumptionState} onClick={() => {
-              clearSelection();
-              setProviderCatalogOpen(true);
-            }}>
-              <PlusIcon className="w-4 h-4" />
-              {t("models.addProvider")}
-            </button>
-            <button className="btn-primary" type="button" disabled={!consumptionState} onClick={() => {
-              if (providerInstances.length === 0) {
-                setProviderCatalogOpen(true);
-                toast.show({ kind: "error", msg: t("models.providerRequired") });
-                return;
-              }
-                clearSelection();
-                setCreatingForProviderId(providerFilter ?? providerInstances[0].id);
-                setEditing(null);
-              }}>
-                <PlusIcon className="w-4 h-4" />
-                {t("models.addModel")}
-              </button>
-          </>
-        }
+        listLabel="Models"
+        resultCount={selectedProvider ? undefined : filteredProfiles.length}
         inspector={selectedProfile && editing?.id === selectedProfile.id ? (
           <ModelProfileDialog
             initial={editing}
@@ -610,26 +652,6 @@ export function ModelsView({
             }}
           />
         ) : null}
-        {selectedProvider && (
-          <ProviderBanner
-            provider={selectedProvider}
-            portal={selectedProvider.portal}
-            onEdit={consumptionState ? () => setEditingProvider(selectedProvider) : undefined}
-            onDelete={consumptionState ? async () => {
-              try {
-                await consumptionState.planDelete({
-                  domain: "model-provider",
-                  provider_id: selectedProvider.id,
-                });
-              } catch (error) {
-                toast.show({
-                  kind: "error",
-                  msg: t("models.cannotDeleteProvider", { error: formatError(error) }),
-                });
-              }
-            } : undefined}
-          />
-        )}
         {loading ? (
           <ResourceState kind="loading" title={t("models.loading")} />
         ) : readError ? (
@@ -646,6 +668,24 @@ export function ModelsView({
                 .finally(() => setLoading(false));
             }}>{t("common.retry")}</button>}
           />
+        ) : selectedProvider ? (
+          <>
+            <section aria-label={t("models.addedModels")}>
+              <div className="mux-model-section-heading">
+                <h2>{t("models.addedModels")} <span>{filteredProfiles.length}</span></h2>
+              </div>
+              <ModelList profiles={filteredProfiles} providerInstances={providerInstances} providers={providers}
+                metadata={modelsDevByProfileId} selectedProfileId={selectedProfileId}
+                leading={<ManualModelCard disabled={creationDisabled} onAdd={createManualModel} />}
+                onDelete={consumptionState && !creationDisabled ? planProfileDelete : undefined}
+                onOpen={(profileId) => { setEditing(undefined); setSelectedProfileId(profileId); }} />
+            </section>
+            {selectedProvider.model_discovery_supported ? (
+              <ProviderModelCatalog key={selectedProvider.id} provider={selectedProvider} revision={modelRevision}
+                profiles={profiles} query={deferredQuery} protocols={selectedProviderProtocols}
+                disabled={creationDisabled} addingId={addingCatalogId} onAdd={addCatalogModel} />
+            ) : <p className="mux-model-catalog-notice">{t("models.discoveryUnsupported")}</p>}
+          </>
         ) : filteredProfiles.length === 0 ? (
           <ResourceState
             kind={profiles.length === 0 ? "empty" : "no-match"}
@@ -692,15 +732,9 @@ export function ModelsView({
           initial={editing}
           providerInstances={providerInstances}
           preferredProviderId={creatingForProviderId}
-          providerSelectionLocked={providerFilter !== null}
           onClose={() => {
             setEditing(undefined);
             setCreatingProviderTemplate(null);
-          }}
-          onAddProvider={() => {
-            setEditing(undefined);
-            setCreatingForProviderId(null);
-            setProviderCatalogOpen(true);
           }}
           onReview={async (profile) => {
             if (!consumptionState) throw new Error(t("models.saveUnavailable"));
@@ -764,7 +798,7 @@ function ProviderPortalButton({ portal }: { portal?: ModelProviderView["portal"]
   );
 }
 
-function ProviderBanner({
+function ProviderOverview({
   provider,
   portal,
   onEdit,
@@ -777,35 +811,43 @@ function ProviderBanner({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="mux-model-provider-banner">
-      <div className="mux-model-provider-banner-identity">
-        <ProviderGlyph id={provider.provider} name={provider.name} size={30} />
-        <div className="mux-model-provider-banner-copy">
-          <strong>{provider.name}</strong>
-          <span>{t("models.providerModelCount", { count: provider.model_count })}</span>
-          <span
-            className="mux-model-provider-credential"
-            data-saved={provider.credential_saved ? "true" : "false"}
-            role="img"
-            aria-label={provider.credential_saved ? t("models.keychainSaved") : t("models.keychainNotSaved")}
-            title={provider.credential_saved ? t("models.keychainSaved") : t("models.keychainNotSaved")}
-          >
-            <KeyIcon className="w-3.5 h-3.5" />
-          </span>
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <ProviderPortalButton portal={portal} />
-        <button className="btn-danger" type="button" disabled={!onDelete} onClick={onDelete}>
-          <TrashIcon className="w-4 h-4" />
-          {t("common.delete")}
-        </button>
+    <ResourceOverview
+      eyebrow={`Provider · ${t("models.providerModelCount", { count: provider.model_count })}`}
+      title={provider.name}
+      icon={<ProviderGlyph id={provider.provider} name={provider.name} size={34} />}
+      actions={<>
         <button className="btn-secondary" type="button" disabled={!onEdit} onClick={onEdit}>
           <EditIcon className="w-4 h-4" />
           {t("models.editProvider")}
         </button>
+        <button className="btn-ghost" type="button" disabled={!onDelete} onClick={onDelete}
+          title={t("common.delete")} aria-label={`${t("common.delete")} ${provider.name}`}>
+          <TrashIcon className="w-4 h-4" />
+        </button>
+      </>}
+    >
+      <dl className="mux-resource-overview-facts">
+        <div>
+          <dt>Base URL</dt>
+          <dd><code title={provider.base_url}>{provider.base_url}</code></dd>
+        </div>
+        <div>
+          <dt>{t("models.protocolsShort")}</dt>
+          <dd className="mux-resource-overview-tags">
+            {PROTOCOLS.filter(({ id }) => provider.protocols[id]).map(({ id, label }) => (
+              <span key={id} title={provider.protocols[id]?.endpoint_path}>{label}</span>
+            ))}
+          </dd>
+        </div>
+      </dl>
+      <div className="mux-resource-overview-links">
+        <span className="mux-resource-overview-credential" data-saved={provider.credential_saved || undefined}>
+          <KeyIcon className="w-3.5 h-3.5" />
+          {provider.credential_saved ? t("models.keychainSaved") : `Keychain · ${t("models.keychainNotSaved")}`}
+        </span>
+        <ProviderPortalButton portal={portal} />
       </div>
-    </div>
+    </ResourceOverview>
   );
 }
 
@@ -817,6 +859,7 @@ const ModelList = memo(function ModelList({
   selectedProfileId,
   onOpen,
   onDelete,
+  leading,
 }: {
   profiles: ModelProfileView[];
   providerInstances: ModelProviderInstanceView[];
@@ -825,6 +868,7 @@ const ModelList = memo(function ModelList({
   selectedProfileId: string | null;
   onOpen: (profileId: string) => void;
   onDelete?: (profile: ModelProfileView) => Promise<void>;
+  leading?: ReactNode;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -848,6 +892,7 @@ const ModelList = memo(function ModelList({
   };
   return (
     <div className="mux-asset-list mux-model-list" role="list" aria-label={t("models.asset")}>
+      {leading}
       {profiles.map((profile) => {
         const provider = instanceIndex.get(profile.provider_id ?? "");
         const providerName = provider?.name ?? templateIndex.get(profile.provider) ?? profile.provider;
@@ -1142,484 +1187,177 @@ function ModelProfileDialog({
   initial,
   providerInstances,
   preferredProviderId,
-  providerSelectionLocked = false,
   onClose,
   onReview,
-  onAddProvider,
   presentation = "dialog",
 }: {
   initial: ModelProfileView | null;
   providerInstances: ModelProviderInstanceView[];
   preferredProviderId?: string | null;
-  providerSelectionLocked?: boolean;
   onClose: () => void;
   onReview: (profile: ModelProfile) => Promise<void>;
-  onAddProvider?: () => void;
   presentation?: "dialog" | "inspector";
 }) {
   const { t } = useTranslation();
+  const toast = useToast();
+  const reasoningGroupId = useId();
   const preferredProvider = providerInstances.find((provider) =>
     provider.id === (initial?.provider_id ?? preferredProviderId),
-  ) ?? providerInstances[0] ?? null;
-  const preferredProtocol = preferredProvider
-    ? PROTOCOLS.find((protocol) => preferredProvider.protocols[protocol.id])?.id
-      ?? "openai-responses"
-    : "openai-responses";
+  ) ?? null;
   const [draft, setDraft] = useState<ModelProfile>(() => initial ?? {
     ...emptyProfile(),
     provider_id: preferredProvider?.id,
     provider: preferredProvider?.provider ?? "",
-    protocol: preferredProtocol,
+    protocol: PROTOCOLS.find(({ id }) => preferredProvider?.protocols[id])?.id ?? "openai-responses",
     base_url: preferredProvider?.base_url ?? "",
     env_key: preferredProvider?.env_key,
   });
   const [busy, setBusy] = useState(false);
-  const [modelDiscoveryByProvider, setModelDiscoveryByProvider] = useState<
-    Record<string, ProviderModelDiscoveryState>
-  >({});
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [modelDiscoveryQuery, setModelDiscoveryQuery] = useState("");
-  const modelListId = useId();
-  const modelDiscoveryRequests = useRef<Record<string, number>>({});
-  const modelDiscoveryRequested = useRef(new Set<string>());
-  const autoContextWindow = useRef<number | null>(null);
-  const activeProviderId = useRef<string | null>(draft.provider_id ?? null);
-  const handledInitialProvider = useRef(false);
-  const previousProviderId = useRef<string | undefined>(draft.provider_id);
-  const mounted = useRef(true);
-  const toast = useToast();
-  const providerInstance = providerInstances.find(
-    (provider) => provider.id === draft.provider_id,
-  ) ?? null;
-  const modelDiscoveryAvailable = providerInstance?.model_discovery_supported === true;
-  const availableProtocols = providerInstance
-    ? PROTOCOLS.filter((protocol) => Boolean(providerInstance.protocols[protocol.id]))
-    : [];
+  const providerInstance = providerInstances.find((provider) => provider.id === draft.provider_id) ?? null;
+  const availableProtocols = PROTOCOLS.filter(({ id }) => providerInstance?.protocols[id]);
   const requestUrl = providerInstance
-    ? fullRequestUrl(
-        providerInstance.base_url,
-        providerInstance.protocols[draft.protocol]?.endpoint_path ?? "",
-      )
+    ? fullRequestUrl(providerInstance.base_url, providerInstance.protocols[draft.protocol]?.endpoint_path ?? "")
     : "";
-  activeProviderId.current = providerInstance?.id ?? null;
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
-  const loadProviderModels = useCallback(async (providerId: string, force = false) => {
-    const provider = providerInstances.find((candidate) => candidate.id === providerId);
-    if (!provider?.model_discovery_supported) return;
-    if (!force && modelDiscoveryRequested.current.has(providerId)) return;
-    modelDiscoveryRequested.current.add(providerId);
-    const requestId = (modelDiscoveryRequests.current[providerId] ?? 0) + 1;
-    modelDiscoveryRequests.current[providerId] = requestId;
-    if (activeProviderId.current === providerId) setModelDiscoveryQuery("");
-    setModelDiscoveryByProvider((current) => ({
-      ...current,
-      [providerId]: {
-        status: "loading",
-        models: current[providerId]?.models ?? [],
-      },
-    }));
-    try {
-      const models = await discoverProviderModels(providerId);
-      if (!mounted.current || modelDiscoveryRequests.current[providerId] !== requestId) return;
-      setModelDiscoveryByProvider((current) => ({
-        ...current,
-        [providerId]: { status: "success", models },
-      }));
-      if (activeProviderId.current === providerId) setModelPickerOpen(true);
-    } catch (error) {
-      if (!mounted.current || modelDiscoveryRequests.current[providerId] !== requestId) return;
-      setModelDiscoveryByProvider((current) => ({
-        ...current,
-        [providerId]: {
-          status: "error",
-          models: current[providerId]?.models ?? [],
-          error: formatError(error),
-        },
-      }));
-    }
-  }, [providerInstances]);
-
-  useEffect(() => {
-    const providerId = providerInstance?.id;
-    if (!providerId) return;
-    const changed = previousProviderId.current !== providerId;
-    previousProviderId.current = providerId;
-    if (!handledInitialProvider.current) {
-      handledInitialProvider.current = true;
-      if (initial) return;
-    } else if (!changed) {
-      return;
-    }
-    void loadProviderModels(providerId);
-  }, [initial, loadProviderModels, providerInstance]);
-
-  const activeModelDiscovery = providerInstance
-    ? modelDiscoveryByProvider[providerInstance.id]
-    : undefined;
-  const modelQuery = modelDiscoveryQuery.trim().toLocaleLowerCase();
-  const matchingProviderModels = (activeModelDiscovery?.models ?? []).filter((model) =>
-    !modelQuery
-      || model.id.toLocaleLowerCase().includes(modelQuery)
-      || model.name?.toLocaleLowerCase().includes(modelQuery)
-  );
-  const visibleProviderModels = matchingProviderModels.slice(0, MAX_VISIBLE_DISCOVERY_MODELS);
+  const contextValid = draft.context_window == null
+    || (Number.isSafeInteger(draft.context_window) && draft.context_window > 0);
+  const outputValid = draft.max_output_tokens == null
+    || (Number.isSafeInteger(draft.max_output_tokens) && draft.max_output_tokens > 0);
+  const valid = Boolean(providerInstance && requestUrl && draft.model.trim() && contextValid && outputValid && !busy);
+  const reasoningValue = draft.reasoning === undefined ? "auto" : draft.reasoning ? "on" : "off";
 
   const selectProvider = (providerId: string) => {
     const provider = providerInstances.find((candidate) => candidate.id === providerId);
     if (!provider) return;
-    const protocol = provider.protocols[draft.protocol]
-      ? draft.protocol
-      : PROTOCOLS.find((candidate) => provider.protocols[candidate.id])?.id
-        ?? draft.protocol;
-    activeProviderId.current = provider.id;
-    setModelPickerOpen(false);
-    setModelDiscoveryQuery("");
-    const previousAutoContextWindow = autoContextWindow.current;
-    autoContextWindow.current = null;
     setDraft((current) => ({
       ...current,
       provider_id: provider.id,
       provider: provider.provider,
-      protocol,
+      protocol: provider.protocols[current.protocol] ? current.protocol
+        : PROTOCOLS.find(({ id }) => provider.protocols[id])?.id ?? current.protocol,
       base_url: provider.base_url,
       env_key: provider.env_key,
-      context_window: previousAutoContextWindow !== null
-        && current.context_window === previousAutoContextWindow
-        ? undefined
-        : current.context_window,
     }));
   };
-
-  const valid = Boolean(
-    providerInstance
-      && providerInstance.protocols[draft.protocol]
-      && requestUrl
-      && draft.model.trim()
-      && !busy,
-  );
-
   const save = async () => {
     if (!valid) return;
     setBusy(true);
     try {
-      await onReview({
-        ...draft,
-        id: initial?.id ?? "",
-        name: draft.name.trim(),
-        model: draft.model.trim(),
-      });
+      await onReview({ ...draft, id: initial?.id ?? "", name: draft.name.trim(), model: draft.model.trim() });
     } catch (error) {
       toast.show({ kind: "error", msg: t("models.saveFailed", { error: formatError(error) }) });
     } finally {
       setBusy(false);
     }
   };
-
-  const footer = (
-    <>
-      <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>{t("common.cancel")}</button>
-      <button type="button" className="btn-primary" disabled={!valid} onClick={() => void save()}>
-        {initial
-          ? busy ? t("common.saving") : t("common.save")
-          : busy ? t("models.addingAction") : t("models.addAction")}
-      </button>
-    </>
-  );
+  const copyRequestUrl = async () => {
+    if (!requestUrl) return;
+    try {
+      await copyToClipboard(requestUrl);
+      toast.show({ kind: "success", msg: t("models.copiedValue", { label: t("models.fullRequestUrl") }) });
+    } catch (error) {
+      toast.show({ kind: "error", msg: t("models.copyValueFailed", { error: formatError(error) }) });
+    }
+  };
+  const providerIdentity = initial ? (
+    <div className="mux-model-editor-provider-select">
+      <FormSelect ariaLabel={t("models.provider")} value={draft.provider_id ?? ""}
+        placeholder={t("models.providerPlaceholder")}
+        options={providerInstances.map((provider) => ({ value: provider.id, label: provider.name }))}
+        onChange={selectProvider} disabled={busy} />
+    </div>
+  ) : <span className="mux-model-editor-provider-name" title={providerInstance?.name}>{providerInstance?.name ?? t("models.providerRequired")}</span>;
+  const providerAvatar = <span className="mux-model-editor-avatar">
+    <ProviderGlyph id={providerInstance?.provider ?? initial?.provider ?? "custom"}
+      name={providerInstance?.name ?? initial?.name ?? "Provider"} size={30} />
+  </span>;
+  const footer = <>
+    <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>{t("common.cancel")}</button>
+    <button type="button" className="btn-primary" disabled={!valid} onClick={() => void save()}>
+      {initial ? busy ? t("common.saving") : t("common.save")
+        : busy ? t("models.addingAction") : t("models.addAction")}
+    </button>
+  </>;
   const form = (
-    <div className="mux-model-form">
+    <div className="mux-model-form mux-model-editor-form">
+      <label className="mux-model-editor-id">
+        <span>{t("models.modelId")}</span>
+        <input autoFocus data-modal-initial-focus className="mux-model-field"
+          aria-label={t("models.modelId")} value={draft.model} spellCheck={false}
+          autoComplete="off" autoCorrect="off" autoCapitalize="none"
+          placeholder={t("models.modelIdPlaceholder")}
+          onChange={(event) => setDraft({ ...draft, model: event.currentTarget.value })} />
+      </label>
       <div className="mux-model-form-grid">
         <label>
           <span>{t("models.optionalName")}</span>
-          <input
-            autoFocus
-            className="mux-model-field"
-            value={draft.name}
-            onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-            placeholder={t("models.generatedName")}
-          />
+          <input className="mux-model-field" value={draft.name}
+            onChange={(event) => setDraft({ ...draft, name: event.currentTarget.value })}
+            placeholder={t("models.generatedNameShort")} />
         </label>
-        <div className="mux-model-form-field">
-          <span>{t("models.provider")}</span>
-          {providerSelectionLocked && providerInstance ? (
-            <input
-              aria-label={t("models.provider")}
-              className="mux-model-field"
-              readOnly
-              value={providerInstance.name}
-            />
-          ) : (
-            <>
-              <FormSelect
-                ariaLabel={t("models.provider")}
-                value={draft.provider_id ?? ""}
-                placeholder={t("models.providerPlaceholder")}
-                options={providerInstances.map((provider) => ({
-                  value: provider.id,
-                  label: provider.name,
-                }))}
-                onChange={selectProvider}
-              />
-              {providerInstances.length === 0 && (
-                <div className="mux-model-provider-required">
-                  <small>{t("models.providerRequired")}</small>
-                  {onAddProvider && (
-                    <button type="button" className="btn-secondary" onClick={onAddProvider}>
-                      <PlusIcon className="w-3.5 h-3.5" />
-                      {t("models.addProvider")}
-                    </button>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="mux-model-form-grid">
         <div className="mux-model-form-field">
           <span>{t("models.protocol")}</span>
-          <FormSelect
-            ariaLabel={t("models.protocol")}
-            value={draft.protocol}
-            options={availableProtocols.map((protocol) => ({ value: protocol.id, label: protocol.label }))}
-            onChange={(protocol) => {
-              const nextProtocol = protocol as ModelProtocol;
-              setDraft({
-                ...draft,
-                protocol: nextProtocol,
-                base_url: providerInstance?.base_url ?? "",
-              });
-            }}
-          />
-        </div>
-        <div className="mux-model-form-field mux-provider-model-picker mux-model-form-wide">
-          <span>{t("models.modelId")}</span>
-          <div className="mux-provider-model-input">
-            <input
-              aria-autocomplete={modelDiscoveryAvailable ? "list" : undefined}
-              aria-controls={modelDiscoveryAvailable ? modelListId : undefined}
-              aria-expanded={modelDiscoveryAvailable ? modelPickerOpen : undefined}
-              aria-label={t("models.modelId")}
-              className="mux-model-field"
-              role={modelDiscoveryAvailable ? "combobox" : undefined}
-              value={draft.model}
-              onChange={(event) => {
-                const model = event.currentTarget.value;
-                const previousAutoContextWindow = autoContextWindow.current;
-                autoContextWindow.current = null;
-                setDraft((current) => ({
-                  ...current,
-                  model,
-                  context_window: previousAutoContextWindow !== null
-                    && current.context_window === previousAutoContextWindow
-                    ? undefined
-                    : current.context_window,
-                }));
-                setModelDiscoveryQuery(model);
-                if (activeModelDiscovery?.status === "success") setModelPickerOpen(true);
-              }}
-              onFocus={() => {
-                if (activeModelDiscovery?.status === "success") setModelPickerOpen(true);
-              }}
-              placeholder="model-name"
-              spellCheck={false}
-            />
-            {providerInstance && modelDiscoveryAvailable && (
-              <button
-                type="button"
-                className="mux-provider-model-refresh"
-                aria-label={t("models.refreshModelCatalog")}
-                title={t("models.refreshModelCatalog")}
-                aria-busy={activeModelDiscovery?.status === "loading"}
-                disabled={activeModelDiscovery?.status === "loading"}
-                onClick={() => void loadProviderModels(providerInstance.id, true)}
-              >
-                <RefreshIcon className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-          {providerInstance && !modelDiscoveryAvailable && (
-            <small className="mux-provider-model-status">
-              {t(providerInstance.provider === "azure-openai"
-                ? "models.azureDeploymentHint" : "models.manualModelCatalogHint")}
-            </small>
-          )}
-          {providerInstance
-            && activeModelDiscovery
-            && activeModelDiscovery.status !== "success" && (
-            <div
-              className="mux-provider-model-status"
-              data-status={activeModelDiscovery.status}
-              role="status"
-            >
-              {activeModelDiscovery.status === "loading" && t("models.loadingModelCatalog")}
-              {activeModelDiscovery.status === "error" && t("models.modelCatalogError", {
-                error: activeModelDiscovery.error,
-              })}
-            </div>
-          )}
-          {providerInstance
-            && modelPickerOpen
-            && activeModelDiscovery?.status === "success" && (
-            <div
-              id={modelListId}
-              className="mux-provider-model-options"
-              role="listbox"
-              aria-label={t("models.modelCatalogSuggestions")}
-            >
-              {visibleProviderModels.map((model) => (
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={draft.model === model.id}
-                  className="mux-provider-model-option"
-                  key={model.id}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    const previousAutoContextWindow = autoContextWindow.current;
-                    const nextAutoContextWindow = model.context_length && model.context_length > 0
-                      ? model.context_length
-                      : null;
-                    autoContextWindow.current = nextAutoContextWindow;
-                    setDraft((current) => ({
-                      ...current,
-                      model: model.id,
-                      context_window: nextAutoContextWindow
-                        ?? (previousAutoContextWindow !== null
-                          && current.context_window === previousAutoContextWindow
-                          ? undefined
-                          : current.context_window),
-                    }));
-                    setModelDiscoveryQuery("");
-                    setModelPickerOpen(false);
-                  }}
-                >
-                  <span>
-                    <strong>{model.name || model.id}</strong>
-                    {model.name && <code>{model.id}</code>}
-                  </span>
-                  {model.context_length && <small>{formatTokens(model.context_length)}</small>}
-                </button>
-              ))}
-              {matchingProviderModels.length === 0 && (
-                <div className="mux-provider-model-empty">{t("models.noModelCatalogMatches")}</div>
-              )}
-              {matchingProviderModels.length > visibleProviderModels.length && (
-                <div className="mux-provider-model-limit">
-                  {t("models.modelCatalogShowing", { count: visibleProviderModels.length })}
-                </div>
-              )}
-            </div>
-          )}
+          <FormSelect ariaLabel={t("models.protocol")} value={draft.protocol}
+            options={availableProtocols.map(({ id, label }) => ({ value: id, label }))}
+            onChange={(protocol) => setDraft({ ...draft, protocol: protocol as ModelProtocol })} />
         </div>
       </div>
-
-      <DialogDisclosure title={t("common.advancedSettings")} summary={t("models.modelOptionsSummary")}
-        invalid={Boolean((draft.context_window != null && (!Number.isInteger(draft.context_window) || draft.context_window < 1)) || (draft.max_output_tokens != null && (!Number.isInteger(draft.max_output_tokens) || draft.max_output_tokens < 1)))}>
-      <label className="mux-model-form-wide">
-        <span>{t("models.fullRequestUrl")}</span>
-        <input
-          className="mux-model-field mux-model-url-preview"
-          value={requestUrl}
-          placeholder={t("models.fullRequestUrlUnavailable")}
-          readOnly
-        />
-      </label>
-
-      <div className="mux-model-form-grid">
+      <div className="mux-model-form-grid mux-model-editor-limits">
         <label>
-          <span>{t("models.contextWindow")}</span>
-          <input
-            type="number"
-            min={1}
-            className="mux-model-field"
-            value={draft.context_window ?? ""}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              autoContextWindow.current = null;
-              setDraft((current) => ({
-                ...current,
-                context_window: value ? Number(value) : undefined,
-              }));
-            }}
-          />
+          <span>{t("models.contextWindow")} <small>tokens</small></span>
+          <input type="number" min={1} step={1} className="mux-model-field"
+            value={draft.context_window ?? ""} aria-invalid={!contextValid || undefined}
+            placeholder={t("models.modelDefault")}
+            onChange={(event) => setDraft({ ...draft,
+              context_window: event.currentTarget.value ? Number(event.currentTarget.value) : undefined })} />
+          {!contextValid && <small data-error>{t("models.positiveIntegerRequired")}</small>}
         </label>
         <label>
-          <span>{t("models.maxOutput")}</span>
-          <input
-            type="number"
-            min={1}
-            className="mux-model-field"
-            value={draft.max_output_tokens ?? ""}
-            onChange={(event) => setDraft({
-              ...draft,
-              max_output_tokens: event.target.value ? Number(event.target.value) : undefined,
-            })}
-          />
+          <span>{t("models.maxOutput")} <small>tokens</small></span>
+          <input type="number" min={1} step={1} className="mux-model-field"
+            value={draft.max_output_tokens ?? ""} aria-invalid={!outputValid || undefined}
+            placeholder={t("models.modelDefault")}
+            onChange={(event) => setDraft({ ...draft,
+              max_output_tokens: event.currentTarget.value ? Number(event.currentTarget.value) : undefined })} />
+          {!outputValid && <small data-error>{t("models.positiveIntegerRequired")}</small>}
         </label>
       </div>
-
-      <div className="mux-model-form-field mux-model-form-wide">
+      <div className="mux-model-form-field">
         <span>{t("models.reasoningMode")}</span>
-        <FormSelect
-          ariaLabel={t("models.reasoningMode")}
-          value={draft.reasoning === undefined ? "auto" : draft.reasoning ? "on" : "off"}
-          options={[
+        <div className="mux-model-reasoning-options" role="radiogroup" aria-label={t("models.reasoningMode")}>
+          {[
             { value: "auto", label: t("models.reasoningAuto") },
             { value: "on", label: t("models.reasoningOn") },
             { value: "off", label: t("models.reasoningOff") },
-          ]}
-          onChange={(value) => setDraft({
-            ...draft,
-            reasoning: value === "auto" ? undefined : value === "on",
-          })}
-        />
+          ].map(({ value, label }) => <label key={value}>
+            <input type="radio" name={reasoningGroupId} value={value} checked={reasoningValue === value}
+              onChange={() => setDraft({ ...draft, reasoning: value === "auto" ? undefined : value === "on" })} />
+            <span>{label}</span>
+          </label>)}
+        </div>
       </div>
-      </DialogDisclosure>
+      <div className="mux-model-editor-endpoint">
+        <div>
+          <span>{t("models.fullRequestUrl")}</span>
+          <button type="button" className="mux-model-card-action" disabled={!requestUrl}
+            title={t("models.copyValue", { label: t("models.fullRequestUrl") })}
+            aria-label={t("models.copyValue", { label: t("models.fullRequestUrl") })}
+            onClick={() => void copyRequestUrl()}><CopyIcon className="w-3.5 h-3.5" /></button>
+        </div>
+        <code>{requestUrl || t("models.fullRequestUrlUnavailable")}</code>
+      </div>
     </div>
   );
-
   if (presentation === "inspector" && initial) {
-    return (
-      <ResourceInspector
-        title={t("models.editTitle")}
-        avatar={<Avatar seed={initial.name} kind="model" size={40} />}
-        subtitle={t("models.modelRelationshipSubtitle")}
-        onClose={onClose}
-        footer={
-          <>
-            <div className="flex-1" />
-            {footer}
-          </>
-        }
-      >
-        {form}
-      </ResourceInspector>
-    );
-  }
-
-  return (
-    <DialogShell
-      className="mux-dialog-model-editor"
-      kind="editor"
-      size="md"
-      leading={<span className="mux-dialog-shell-glyph"><ResourceIcon domain="model" /></span>}
-      title={initial ? t("models.editTitle") : t("models.createTitle")}
-      subtitle={t("models.modelRelationshipSubtitle")}
-      busy={busy}
-      onClose={onClose}
-      footerEnd={footer}
-    >
+    return <ResourceInspector title={t("models.editTitle")} avatar={providerAvatar}
+      subtitle={providerIdentity} onClose={onClose} footer={<><div className="flex-1" />{footer}</>}>
       {form}
-    </DialogShell>
-  );
+    </ResourceInspector>;
+  }
+  return <DialogShell className="mux-dialog-model-editor" kind="editor" size="md"
+    leading={providerAvatar} title={initial ? t("models.editTitle") : t("models.createTitle")}
+    subtitle={providerIdentity} busy={busy} onClose={onClose} footerEnd={footer}>
+    {form}
+  </DialogShell>;
 }
 
 function ModelProviderDialog({

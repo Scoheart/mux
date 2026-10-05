@@ -2,6 +2,7 @@ import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import { traceEnUS, traceZhCN } from "../lib/traceCopy";
 import { agentConfigurationEnUS, agentConfigurationZhCN } from "./agentConfigurationCopy";
+import { mcpEditorEnUS, mcpEditorZhCN } from "./mcpEditorCopy";
 
 export type SupportedLocale = "zh-CN" | "en-US";
 export type LocalePreference = SupportedLocale | null;
@@ -11,6 +12,7 @@ export function systemLocale(): SupportedLocale {
 }
 
 const zhCN = {
+  mcpEditor: mcpEditorZhCN,
   agentConfiguration: agentConfigurationZhCN,
   notifications: { close: "关闭通知", closeError: "关闭错误通知", closeSuccess: "关闭成功通知" },
   agentRuntime: { installed: "已安装", hostAvailable: "宿主可用", entryAvailable: "启动入口可用", customEntry: "自定义启动入口", status: "{{name}} {{status}}，{{version}}", version: "版本 {{version}}", unknownVersion: "版本未知" },
@@ -227,7 +229,6 @@ const zhCN = {
     addFailed: "添加 Agent 失败：{{error}}",
   },
   models: {
-    modelOptionsSummary: "请求详情、额度与推理",
     title: "Models",
     description: "集中管理模型连接、协议与凭据引用",
     protocol: "协议",
@@ -249,6 +250,21 @@ const zhCN = {
     createProvider: "新建 Provider",
     addProvider: "添加 Provider",
     addModel: "添加 Models",
+    manualAdd: "手动添加 Model",
+    manualAddHint: "填写 Model ID",
+    addedModels: "已添加",
+    availableModels: "可添加",
+    catalogCandidate: "候选模型 {{name}}",
+    catalogCandidateLabel: "尚未添加",
+    addCatalogModel: "添加 {{name}}",
+    chooseProtocol: "选择协议",
+    showMoreAvailable: "再显示 {{count}} 个模型",
+    discoveryNeedsCredential: "先编辑 Provider 配置凭据，仍可手动添加 Model。",
+    discoveryNeedsEndpoint: "请编辑 Provider 配置 Models 列表 URL，仍可手动添加 Model。",
+    discoveryError: "无法读取模型列表：{{error}}",
+    discoveryUnsupported: "此 Provider 暂不提供模型列表，可在上方手动添加。",
+    catalogAllAdded: "列表中的模型均已添加。",
+    catalogEmpty: "接口暂未返回模型，可在上方手动添加。",
     addAction: "添加",
     addingAction: "添加中…",
     modelColumn: "Models",
@@ -316,10 +332,7 @@ const zhCN = {
     copyValueFailed: "复制失败：{{error}}",
     refreshModelCatalog: "刷新模型列表",
     loadingModelCatalog: "正在获取模型列表…",
-    modelCatalogError: "无法获取模型列表，仍可手动填写 Model ID：{{error}}",
-    modelCatalogSuggestions: "可用模型",
     noModelCatalogMatches: "没有匹配的模型；仍可直接输入 Model ID。",
-    modelCatalogShowing: "仅显示前 {{count}} 个结果，请继续输入以缩小范围。",
     environmentVariable: "环境变量",
     apiKey: "API Key",
     showApiKey: "显示 API Key",
@@ -334,6 +347,10 @@ const zhCN = {
     customProvider: "自定义模型提供商…",
     optionalName: "名称（可选）",
     generatedName: "留空则根据模型自动生成",
+    generatedNameShort: "留空自动命名",
+    modelIdPlaceholder: "输入 Model ID",
+    modelDefault: "模型默认",
+    positiveIntegerRequired: "请输入大于 0 的整数。",
     baseUrl: "Base URL",
     invalidBaseUrl: "请输入不含凭据、查询参数或 fragment 的 HTTP(S) Base URL。",
     modelCatalogUrl: "Models 列表 URL",
@@ -372,9 +389,8 @@ const zhCN = {
     reasoningAuto: "自动",
     reasoningOn: "开启",
     reasoningOff: "关闭",
-    editTitle: "编辑 Models",
-    createTitle: "添加 Models",
-    modelRelationshipSubtitle: "模型必须引用一个 Provider；连接与凭据由 Provider 统一管理。",
+    editTitle: "编辑 Model",
+    createTitle: "添加 Model",
     keychainSubtitle: "API Key 保存在 macOS Keychain。",
   },
 } as const;
@@ -384,6 +400,7 @@ type TranslationShape<T> = {
 };
 
 const enUS: TranslationShape<typeof zhCN> = {
+  mcpEditor: mcpEditorEnUS,
   agentConfiguration: agentConfigurationEnUS,
   notifications: { close: "Dismiss notification", closeError: "Dismiss error notification", closeSuccess: "Dismiss success notification" },
   agentRuntime: { installed: "Installed", hostAvailable: "Host available", entryAvailable: "Launcher available", customEntry: "Custom launcher", status: "{{name}} {{status}}, {{version}}", version: "version {{version}}", unknownVersion: "version unknown" },
@@ -600,7 +617,6 @@ const enUS: TranslationShape<typeof zhCN> = {
     addFailed: "Could not add Agent: {{error}}",
   },
   models: {
-    modelOptionsSummary: "Request details, limits and reasoning",
     title: "Models",
     description: "Manage reusable model connections, protocols, and credential references",
     protocol: "Protocol",
@@ -622,6 +638,21 @@ const enUS: TranslationShape<typeof zhCN> = {
     createProvider: "New Provider",
     addProvider: "Add Provider",
     addModel: "Add Models",
+    manualAdd: "Add Model manually",
+    manualAddHint: "Enter a Model ID",
+    addedModels: "Added",
+    availableModels: "Available to add",
+    catalogCandidate: "Candidate model {{name}}",
+    catalogCandidateLabel: "Not added",
+    addCatalogModel: "Add {{name}}",
+    chooseProtocol: "Choose protocol",
+    showMoreAvailable: "Show {{count}} more models",
+    discoveryNeedsCredential: "Edit the Provider to configure credentials, or add a Model manually above.",
+    discoveryNeedsEndpoint: "Edit the Provider to configure a Models list URL, or add a Model manually above.",
+    discoveryError: "Could not load the model list: {{error}}",
+    discoveryUnsupported: "This Provider has no model list. Add a Model manually above.",
+    catalogAllAdded: "All models in this list have been added.",
+    catalogEmpty: "The API returned no models. You can add a Model manually above.",
     addAction: "Add",
     addingAction: "Adding…",
     modelColumn: "Models",
@@ -689,10 +720,7 @@ const enUS: TranslationShape<typeof zhCN> = {
     copyValueFailed: "Could not copy: {{error}}",
     refreshModelCatalog: "Refresh model list",
     loadingModelCatalog: "Fetching model list…",
-    modelCatalogError: "Could not fetch the model list. You can still enter a Model ID manually: {{error}}",
-    modelCatalogSuggestions: "Available models",
     noModelCatalogMatches: "No matching models. You can still enter a Model ID directly.",
-    modelCatalogShowing: "Showing the first {{count}} results. Keep typing to narrow the list.",
     environmentVariable: "Environment variable",
     apiKey: "API Key",
     showApiKey: "Show API Key",
@@ -707,6 +735,10 @@ const enUS: TranslationShape<typeof zhCN> = {
     customProvider: "Custom model provider…",
     optionalName: "Name (optional)",
     generatedName: "Leave blank to generate from the model",
+    generatedNameShort: "Auto name if blank",
+    modelIdPlaceholder: "Enter a Model ID",
+    modelDefault: "Model default",
+    positiveIntegerRequired: "Enter a positive integer.",
     baseUrl: "Base URL",
     invalidBaseUrl: "Enter an HTTP(S) Base URL without credentials, a query, or a fragment.",
     modelCatalogUrl: "Models list URL",
@@ -745,9 +777,8 @@ const enUS: TranslationShape<typeof zhCN> = {
     reasoningAuto: "Automatic",
     reasoningOn: "On",
     reasoningOff: "Off",
-    editTitle: "Edit Models",
-    createTitle: "Add Models",
-    modelRelationshipSubtitle: "Every model references a Provider; the Provider owns connection and credential settings.",
+    editTitle: "Edit Model",
+    createTitle: "Add Model",
     keychainSubtitle: "API Keys are stored in macOS Keychain.",
   },
 };

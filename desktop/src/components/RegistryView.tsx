@@ -16,7 +16,6 @@ import { AgentGlyph, agentName } from "./brandIcons";
 import {
   CopyIcon,
   EditIcon,
-  PlusIcon,
   LinkIcon,
   CloudIcon,
   DownloadIcon,
@@ -38,6 +37,7 @@ import {
   InspectorField,
   InspectorSection,
   ResourceInspector,
+  ResourceOverview,
   ResourceWorkspace,
 } from "./ResourceWorkspace";
 
@@ -146,8 +146,18 @@ function originLabel(origin: RegistryOrigin | undefined, sourceName: (id: string
   return label || (origin.kind === "remote" ? "订阅" : "本地");
 }
 
+function sourceAddress(url: string): string {
+  try {
+    const parsed = new URL(url);
+    // Subscription credentials can live in userinfo or query parameters.
+    return `${parsed.origin}${parsed.pathname}${parsed.search ? "?…" : ""}`;
+  } catch {
+    return "无效来源地址";
+  }
+}
+
 export function RegistryView({ state, consumptionState, intent, onIntentConsumed, onCreate, suppressOperationReview = false, onRetryLoad, retryLoadDisabled = false }: RegistryViewProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { catalog, entries, sources } = state;
   const toast = useToast();
   const mcpIcons = useMcpIconPreferences();
@@ -185,6 +195,8 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
     if (selectedSource === null) return catalog;
     return catalog.filter((item) => inSource(item.entry, selectedSource));
   }, [catalog, selectedSource]);
+  const activeSource = sources.find((source) => source.id === selectedSource);
+  const sourceLocation = activeSource?.url ? sourceAddress(activeSource.url) : activeSource?.path;
 
   const searchIndex = useMemo(() => {
     const collator = new Intl.Collator(undefined, { sensitivity: "base" });
@@ -309,35 +321,53 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
   return (
     <div className="mux-registry-workspace">
       <ResourceWorkspace
-      title="MCPs"
-      description="集中管理可复用的 MCP 连接、来源与配置"
+      overview={
+        <ResourceOverview
+          eyebrow={activeSource ? `来源 · ${sourceScoped.length} MCPs` : `${catalog.length} MCPs · ${sources.length} 个来源`}
+          title={activeSource?.name ?? "全部 MCPs"}
+          description={activeSource
+            ? activeSource.kind === "remote" ? "订阅来源" : activeSource.managed ? "MUX 管理的来源" : "本地配置来源"
+            : "集中管理可复用的 MCP 连接、来源与配置"}
+          icon={activeSource?.kind === "remote"
+            ? <CloudIcon className="w-6 h-6" />
+            : <ResourceIcon domain="mcp" className="w-6 h-6" />}
+        >
+          {activeSource && <>
+            <dl className="mux-resource-overview-facts">
+              {(activeSource.url || activeSource.path) && <div className="mux-resource-overview-location">
+                <dt>{activeSource.url ? "来源地址" : "配置路径"}</dt>
+                <dd><code title={sourceLocation ?? undefined}>{sourceLocation}</code></dd>
+              </div>}
+              <div>
+                <dt>同步状态</dt>
+                <dd>{activeSource.error ? "同步失败" : !activeSource.enabled ? "已停用" : activeSource.synced_at
+                  ? `上次同步 ${new Date(activeSource.synced_at).toLocaleString(i18n.resolvedLanguage)}`
+                  : activeSource.managed ? "自动管理" : "尚未同步"}</dd>
+              </div>
+            </dl>
+          </>}
+        </ResourceOverview>
+      }
       sidebar={
         <SourcesSidebar
           state={state}
           selectedId={selectedSource}
           onSelect={changeSource}
+          onCreate={() => {
+            closeDetail();
+            onCreate();
+          }}
+          footer={<button className="btn-ghost" type="button" onClick={doExport} disabled={entries.length === 0}>
+            <DownloadIcon className="w-4 h-4" />
+            导出生效配置
+          </button>}
         />
       }
       query={q}
       onQueryChange={changeQuery}
-      searchPlaceholder="搜索 MCPs"
-      toolbarActions={
-        <>
-          <IconButton title="导出生效配置" onClick={doExport} disabled={entries.length === 0}>
-            <DownloadIcon className="w-4 h-4" />
-          </IconButton>
-          <button
-            onClick={() => {
-              closeDetail();
-              onCreate();
-            }}
-            className="btn-primary"
-          >
-            <PlusIcon className="w-4 h-4" />
-            添加 MCPs
-          </button>
-        </>
-      }
+      searchPlaceholder={activeSource ? `搜索 ${activeSource.name} 中的 MCPs` : "搜索 MCPs"}
+      listLabel="MCPs"
+      resultCount={filtered.length}
       inspector={
         reviewingMcpDeletion ? undefined : detail && editingDetail && consumptionState ? (
           <RegistryEditPage

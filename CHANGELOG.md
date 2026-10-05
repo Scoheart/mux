@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0](https://github.com/Scoheart/mux/compare/v1.10.0...v1.11.0) (2026-10-05)
+
+### Changes
+
+* docs(website): refresh guides and released desktop walkthrough ([3f8db08](https://github.com/Scoheart/mux/commit/3f8db0872fcec7375b059fd2db87f32f8b036303))
+* feat(desktop): organize resource libraries and connection forms ([267344d](https://github.com/Scoheart/mux/commit/267344d2d27e0ad5b58cc70507e36ef3c8826b03))
+
 ## [1.10.0](https://github.com/Scoheart/mux/compare/v1.9.0...v1.10.0) (2026-10-04)
 
 ### Changes

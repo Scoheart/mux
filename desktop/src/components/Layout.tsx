@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import type { AgentInfo, ProxySettings, View } from "../lib/types";
 import {
   DownloadIcon,
-  DocumentIcon,
   LanguageIcon,
   MoonIcon,
   NetworkIcon,
@@ -27,7 +26,6 @@ import { DialogShell } from "./DialogShell";
 import { FormSelect } from "./FormSelect";
 import { TerminalSelect } from "./TerminalSelect";
 import "./WorkspaceSettings.css";
-import "./CaptureView.css";
 import { FileEditorSelect } from "./FileEditorSelect";
 import { ProxySettingsDialog } from "./ProxySettingsDialog";
 import { MODAL_DIALOG_SELECTOR } from "./ui";
@@ -41,8 +39,6 @@ interface LayoutProps {
   onSelectRegistry: () => void;
   onSelectModels: () => void;
   onSelectSkills: () => void;
-  onSelectCapture?: () => void;
-  onSelectTraces?: () => void;
   onSelectAgent: (id: string) => void;
   onAddAgent?: () => void;
   onRescan?: () => Promise<unknown> | void;
@@ -60,8 +56,6 @@ export function Layout({
   onSelectRegistry,
   onSelectModels,
   onSelectSkills,
-  onSelectCapture,
-  onSelectTraces,
   onSelectAgent,
   onAddAgent,
   onRescan,
@@ -75,7 +69,6 @@ export function Layout({
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [version, setVersion] = useState("");
   const [proxySettingsOpen, setProxySettingsOpen] = useState(false);
-  const [networkOpen, setNetworkOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const toast = useToast();
   const { t } = useTranslation();
@@ -180,14 +173,6 @@ export function Layout({
           />
         </div>
 
-        <button type="button" className="mux-settings-trigger" aria-label={t("trace.title")} title={t("trace.title")} aria-pressed={view.kind === "traces"} onClick={onSelectTraces}><DocumentIcon className="w-4 h-4" /><span>{t("trace.open")}</span></button>
-        <div className="mux-capture-network-menu">
-          <button type="button" className="mux-settings-trigger" aria-label="网络" title="网络" aria-expanded={networkOpen} onClick={() => setNetworkOpen(!networkOpen)}><NetworkIcon className="w-4 h-4" /><span>网络</span></button>
-          {networkOpen && <><button className="mux-capture-menu-backdrop" aria-label="关闭网络菜单" onClick={() => setNetworkOpen(false)} /><div className="mux-capture-menu-items">
-            <button onClick={() => { setNetworkOpen(false); setProxySettingsOpen(true); }}>代理设置</button>
-            <button onClick={() => { setNetworkOpen(false); onSelectCapture?.(); }}>Agent 抓包</button>
-          </div></>}
-        </div>
         <button type="button" className="mux-settings-trigger" aria-label="设置" title="设置"
           aria-haspopup="dialog" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(true)}>
           <SlidersIcon className="w-4 h-4" /><span>设置</span>

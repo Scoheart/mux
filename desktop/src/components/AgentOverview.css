@@ -8,9 +8,11 @@
 .mux-agent-overview-header .mux-agent-header-copy > div { justify-content: center; }
 .mux-agent-overview-header .mux-agent-header-identity { grid-column: 2; grid-row: 1; justify-self: center; max-width: 100%; }
 .mux-agent-overview-header .mux-agent-header-copy .badge { flex-shrink: 0; }
-.mux-agent-overview-actions { grid-column: 3; grid-row: 1; justify-self: end; display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+.mux-agent-overview-actions { grid-column: 3; grid-row: 1; justify-self: end; display: flex; flex-wrap: wrap; justify-content: flex-end; min-width: 0; max-width: 100%; align-items: center; gap: 6px; }
+.mux-agent-overview-actions > * { flex-shrink: 0; }
+.mux-agent-overview-actions svg { flex-shrink: 0; }
 .mux-agent-tool {
-  display: inline-flex; width: 36px; height: 36px; align-items: center; justify-content: center;
+  display: inline-flex; flex: 0 0 auto; width: auto; height: 36px; align-items: center; justify-content: center; white-space: nowrap;
   padding: 0; border: 1px solid var(--border-hairline); border-radius: 10px;
   background: var(--surface-control); color: var(--text-secondary); cursor: pointer;
   transition: background .16s ease, color .16s ease;
@@ -88,6 +90,7 @@
 .mux-agent-workbench .mux-agent-header h2 { max-width: 100%; font-size: 16px; font-weight: 650; line-height: 1.4; }
 .mux-agent-workbench .mux-agent-overview-actions { grid-column: 3; grid-row: 1; margin: 0; gap: 6px; }
 .mux-agent-workbench .mux-agent-tool { width: auto; height: 30px; padding: 0 9px; gap: 6px; border-radius: 7px; font-size: 11px; }
+.mux-agent-workbench .mux-agent-overview-actions > .mux-capture-button { height: 30px; min-height: 30px; padding: 0 9px; border-radius: 7px; font-size: 11px; }
 .mux-agent-workbench .mux-agent-credential-strategy .mux-form-select-trigger { height: 30px; min-height: 30px; padding: 0 9px; border-radius: 7px; }
 .mux-agent-workbench .mux-launch-action[data-labeled="true"] { height: 30px; border-radius: 7px; box-shadow: none; }
 .mux-agent-workbench .mux-launch-action[data-ready="true"] { background: var(--color-blue); border-color: transparent; }

@@ -292,8 +292,6 @@ function App() {
       onSelectRegistry={() => setView({ kind: "registry" })}
       onSelectModels={() => setView({ kind: "models" })}
       onSelectSkills={() => setView({ kind: "skills" })}
-      onSelectCapture={() => setView({ kind: "capture" })}
-      onSelectTraces={() => setView({ kind: "traces" })}
       onSelectAgent={(id) => setView({ kind: "agent", id })}
       onAddAgent={() => setAddAgentOpen(true)}
       onRescan={() => refreshObservedTasks(ALL_OBSERVATION_TASK_IDS)}

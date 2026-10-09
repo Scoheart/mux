@@ -3,6 +3,7 @@ import capabilityGuides from "../../../data/agent-capability-guides.json";
 import { AgentLaunchAction } from "./AgentLaunchAction";
 import { useAgentLauncher } from "../lib/agentLauncherContext";
 import "./AgentOverview.css";
+import "./CaptureView.css";
 import agentDocsHome from "../../../data/agent-docs-home.json";
 import { useModelObservationRevision } from "../lib/modelObservation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";

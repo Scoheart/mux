@@ -89,9 +89,3 @@
   .mux-capture-workspace { grid-template-columns:minmax(180px,36%) minmax(0,1fr); }
 }
 @media(prefers-reduced-motion:reduce) { .mux-capture-button { transition:none; } }
-
-.mux-capture-network-menu {position:relative;flex-shrink:0}
-.mux-capture-menu-backdrop {position:fixed;inset:0;z-index:110;background:transparent;border:0;cursor:default}
-.mux-capture-menu-items {position:absolute;right:0;top:calc(100% + 8px);z-index:111;min-width:160px;padding:5px;background:var(--surface-workspace);border:1px solid var(--glass-border);border-radius:10px;box-shadow:var(--shadow-sheet)}
-.mux-capture-menu-items button {width:100%;text-align:left;padding:9px 12px;font-size:12px;border:0;border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer}
-.mux-capture-menu-items button:hover {background:var(--surface-selected)}

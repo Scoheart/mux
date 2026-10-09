@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.12.1](https://github.com/Scoheart/mux/compare/v1.12.0...v1.12.1) (2026-10-09)
+
+### Changes
+
+* fix(desktop): remove duplicate navigation and keep agent actions intact ([24d7e8d](https://github.com/Scoheart/mux/commit/24d7e8d1cd6d1a5d126d1b2eb8642cab193f5c1c))
+
 ## [1.12.0](https://github.com/Scoheart/mux/compare/v1.11.0...v1.12.0) (2026-10-09)
 
 ### Changes

@@ -82,6 +82,7 @@ const FULL_BLEED = new Set<string>([
   "freebuff",
   "hermes",
   "kilo-code",
+  "kilo-desktop",
   "kimi-code",
   "kiro",
   "lmstudio",

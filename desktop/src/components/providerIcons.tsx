@@ -84,6 +84,7 @@ export const NAMED_PROVIDER_ICON_IDS = [
   "amazon-bedrock-mantle",
   "cloudflare-workers-ai",
   "deepinfra",
+  "gmi-cloud",
   "sambanova",
   "vercel-ai-gateway",
   "stepfun",

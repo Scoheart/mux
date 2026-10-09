@@ -81,6 +81,10 @@ pub fn agent_capabilities(agent_id: &str) -> AgentCredentialCapabilities {
             capabilities.agent_store = true;
             capabilities.plaintext = true;
         }
+        "kilo-desktop" => {
+            capabilities.native_sources = vec!["env".into(), "file".into()];
+            capabilities.note = Some("Kilo Desktop supports native environment/file references; Keychain credentials are not exported to its config".into());
+        }
         "kilo-code" | "qoder-desktop" => {
             capabilities.native_sources = vec!["env".into()];
             if agent_id == "kilo-code" {

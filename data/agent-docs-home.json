@@ -86,5 +86,6 @@
   "junie-cli": "https://junie.jetbrains.com/docs/junie-cli-mcp-configuration.html",
   "kilo-vscode": "https://github.com/kilo-org/kilocode/blob/76bcfd40be616a72f4697b3041565f322245b462/packages/kilo-vscode/src/kilo-provider/config-file.ts",
   "kiro-cli": "https://kiro.dev/docs/cli/chat/configuration/",
-  "mimo-code": "https://github.com/XiaomiMiMo/MiMo-Code/blob/6babeb0b98f9b4818bddf04a4331edfee04dbf85/packages/cli/src/config/config.ts"
+  "mimo-code": "https://github.com/XiaomiMiMo/MiMo-Code/blob/6babeb0b98f9b4818bddf04a4331edfee04dbf85/packages/cli/src/config/config.ts",
+  "kilo-desktop": "https://kilo.ai/docs/desktop/overview"
 }

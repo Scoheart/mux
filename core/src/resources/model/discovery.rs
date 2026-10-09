@@ -181,6 +181,7 @@ fn reviewed_discovery_spec(provider_type: &str) -> Option<DiscoverySpec> {
         | "mistral"
         | "deepseek"
         | "groq"
+        | "gmi-cloud"
         | "alibaba"
         | "alibaba-international"
         | "amazon-bedrock-mantle"
@@ -803,6 +804,7 @@ mod tests {
         "mistral",
         "deepseek",
         "groq",
+        "gmi-cloud",
         "alibaba",
         "alibaba-coding-plan-cn",
         "alibaba-coding-plan",
@@ -972,10 +974,12 @@ mod tests {
                 "{provider_type}",
             );
         }
-        assert_eq!(
-            reviewed_discovery_spec("openai").map(|spec| spec.credential),
-            Some(CredentialPolicy::Required),
-        );
+        for provider_type in ["openai", "gmi-cloud"] {
+            assert_eq!(
+                reviewed_discovery_spec(provider_type).map(|spec| spec.credential),
+                Some(CredentialPolicy::Required),
+            );
+        }
     }
 
     #[test]

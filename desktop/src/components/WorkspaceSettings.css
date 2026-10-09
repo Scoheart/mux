@@ -7,7 +7,6 @@
 .mux-settings-label { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-primary); }
 .mux-settings-label > svg { color: var(--text-secondary); flex-shrink: 0; }
 .mux-settings-row > .mux-seg { justify-self: end; }
-.mux-settings-row .mux-editor-trigger { width: 100%; justify-content: flex-start; height: 34px; }
 .mux-editor-selected-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; text-align: left; }
 .mux-workspace-settings .mux-editor-menu { width: min(260px, 75vw); max-height: 240px; }
 .mux-settings-value { display: flex; justify-content: flex-end; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; padding: 8px; }
@@ -19,6 +18,7 @@
 .mux-settings-action:disabled { opacity: .5; cursor: default; }
 .mux-terminal-select { min-width: 0; }
 @media (max-width: 500px) { .mux-settings-row { gap: 12px; grid-template-columns: 108px minmax(0, 1fr); } }
-.mux-terminal-selection, .mux-terminal-select .mux-form-select-option-content { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mux-editor-selection, .mux-terminal-selection, .mux-terminal-select .mux-form-select-option-content { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mux-editor-glyph { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: 0 0 20px; }
 .mux-terminal-icon { width: 20px; height: 20px; object-fit: contain; flex-shrink: 0; }
 .mux-terminal-selection > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -93,3 +93,5 @@ Official assets verified 2026-10-04 (original bytes):
 - `mimo-code.png`: official Xiaomi MiMo brand asset already recorded in `../providers/SOURCES.md`, copied unchanged. This is the vendor brand, not a claim of a separately verified Desktop app icon.
 - `deepseek-harness.png`: official DeepSeek brand asset already recorded in `../providers/SOURCES.md`, copied unchanged.
 - Cline CLI, Kiro CLI, Junie CLI, Goose Desktop, Kilo Code VS Code and Codex IDE reuse their verified brand icons; `surfaces.json` distinguishes the product surface.
+
+- `kilo-desktop.png`: PNG decoded from `Kilo.app/Contents/Resources/electron.icns` in the official [Kilo Desktop macOS arm64 ZIP](https://autoupdate.desktop.anaconda.com/kilo-desktop/latest/latest/macos/arm64/Kilo.zip), version 0.1.11, bundle ID `ai.kilo.desktop`, verified 2026-10-07. It preserves the Desktop icon's bright yellow background instead of reusing the older IDE/CLI asset. The installed app name is `Kilo`.

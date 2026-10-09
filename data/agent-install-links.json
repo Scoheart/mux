@@ -350,5 +350,9 @@
   "mimo-code": {
     "url": "https://github.com/XiaomiMiMo/MiMo-Code",
     "label": "安装文档"
+  },
+  "kilo-desktop": {
+    "url": "https://kilo.ai/install",
+    "label": "官方下载"
   }
 }

@@ -42,5 +42,6 @@
   "kilo-vscode": "plugin",
   "kiro": "ide",
   "kiro-cli": "cli",
-  "mimo-code": "cli"
+  "mimo-code": "cli",
+  "kilo-desktop": "desktop"
 }

@@ -706,6 +706,13 @@
       "kind": "setup"
     }
   },
+  "gmi-cloud": {
+    "docs_url": "https://docs.gmicloud.ai/inference-engine/api-reference/llm-api-reference",
+    "portal": {
+      "url": "https://console.gmicloud.ai/user-setting/api-keys",
+      "kind": "api-key"
+    }
+  },
   "vllm": {
     "docs_url": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server/",
     "portal": {

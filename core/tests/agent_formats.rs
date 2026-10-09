@@ -32,6 +32,7 @@ fn fixture(name: &str) -> &'static str {
         "cline-cli" => include_str!("fixtures/cline.json"),
         "codex-ide" => include_str!("fixtures/codex.toml"),
         "kilo-vscode" => include_str!("fixtures/opencode.json"),
+        "kilo-desktop" => include_str!("fixtures/kilo-desktop.jsonc"),
         "kimi-code-desktop" => include_str!("fixtures/kimi-code-desktop.json"),
         "workbuddy" => include_str!("fixtures/workbuddy.json"),
         "zcode" => include_str!("fixtures/zcode.json"),
@@ -56,7 +57,7 @@ fn fixture(name: &str) -> &'static str {
 fn newly_audited_surfaces_preserve_non_connection_state_and_reject_unsafe_inputs() {
     let home = mux_core::testenv::TestHome::new("agent-gap-formats");
     let agents = builtin_agents();
-    for id in ["cline-cli", "kiro-cli", "junie-cli", "goose-desktop", "kilo-vscode",
+    for id in ["cline-cli", "kiro-cli", "junie-cli", "goose-desktop", "kilo-vscode", "kilo-desktop",
         "codex-ide", "mimo-code", "jcode", "jan-cli", "jan-desktop", "anythingllm", "ibm-bob"] {
         let definition = &agents[id];
         let path = home.home.join(format!("{id}.{}", definition.format));
@@ -67,7 +68,7 @@ fn newly_audited_surfaces_preserve_non_connection_state_and_reject_unsafe_inputs
         let initial = adapter.read(&path);
         let (local_name, remote_name) = match id {
             "cline-cli" => ("shared-local", "shared-http"),
-            "kilo-vscode" => ("local-tools", "remote-tools"),
+            "kilo-vscode" | "kilo-desktop" => ("local-tools", "remote-tools"),
             "codex-ide" => ("local", "figma"),
             _ => ("local", "remote"),
         };
@@ -95,6 +96,7 @@ fn newly_audited_surfaces_preserve_non_connection_state_and_reject_unsafe_inputs
             "anythingllm" => vec!["\"autoStart\": true", "\"suppressedTools\"", "\"delete\""],
             "ibm-bob" => vec!["\"alwaysAllow\"", "\"timeout\": 90"],
             "goose-desktop" => vec!["# Desktop and CLI share this file on macOS.", "active_provider: fixture-provider", "Keep this description"],
+            "kilo-desktop" => vec!["// Desktop-owned providers and permissions", "\"desktop-local\"", "\"desktop-webmcp\"", "\"suggest\": \"deny\"", "\"oauth\": false"],
             _ => Vec::new(),
         } {
             assert!(after.contains(preserved), "{id}: missing {preserved}");
@@ -1057,6 +1059,7 @@ fn builtin_global_paths_match_current_product_docs() {
         ("hermes", "~/.hermes/config.yaml"),
         ("junie", "~/.junie/mcp/mcp.json"),
         ("kilo-code", "~/.config/kilo/kilo.jsonc"),
+        ("kilo-desktop", "~/Library/Application Support/Kilo Desktop/plugins/kilo-server/runtime/config/kilo/kilo.jsonc"),
         ("kimi-code", "~/.kimi-code/mcp.json"),
         ("kimi-code-desktop", "~/.kimi-code/mcp.json"),
         ("kiro", "~/.kiro/settings/mcp.json"),

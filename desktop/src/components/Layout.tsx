@@ -207,7 +207,7 @@ export function Layout({
         <DialogShell kind="editor" size="sm" title="设置" className="mux-workspace-settings" leading={<SlidersIcon className="w-5 h-5" />}
           onClose={() => setSettingsOpen(false)}>
           <div className="mux-settings-section">
-            <div className="mux-settings-row"><span className="mux-settings-label"><EditIcon className="w-4 h-4" />文件编辑器</span><FileEditorSelect showLabel /></div>
+            <div className="mux-settings-row"><span className="mux-settings-label"><EditIcon className="w-4 h-4" />{t("fileEditor.label")}</span><FileEditorSelect showLabel /></div>
             <div className="mux-settings-row"><span className="mux-settings-label"><TerminalIcon className="w-4 h-4" />默认终端</span><TerminalSelect /></div>
           </div>
           <div className="mux-settings-section">

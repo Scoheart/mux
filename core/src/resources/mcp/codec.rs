@@ -186,7 +186,7 @@ pub fn for_agent(agent_id: &str) -> Codec {
         "pi" => Codec::Pi,
         "vscode" => Codec::VsCode,
         "codex" | "codex-desktop" | "codex-ide" => Codec::Codex,
-        "opencode" | "opencode-desktop" | "kilo-vscode" => Codec::OpenCode,
+        "opencode" | "opencode-desktop" | "kilo-vscode" | "kilo-desktop" => Codec::OpenCode,
         "goose-desktop" => Codec::Goose,
         "mimo-code" => Codec::MiMo,
         "jcode" => Codec::Jcode,

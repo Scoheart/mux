@@ -349,6 +349,8 @@ ZCode 自定义模型接入与凭据交付说明见 [ZCode Models](docs/zcode-mo
 
 Kimi Code is a separate Agent (`kimi-code-desktop`) with its official app icon and launcher. It shares user-level MCP and Skills with Kimi Code CLI; Models currently open the native setup guide because provider credentials are literal config values. See [integration evidence and boundaries](docs/kimi-code-desktop.md).
 
+Kilo Desktop is available as `Kilo` (`kilo-desktop`) with its official app icon, launcher, installed version, MCPs, Skills, and custom Models. Its desktop runtime config is separate from the CLI's global config; Skills share `~/.kilo/skills`. Models use environment/file credential references and are selected inside each Kilo conversation. See [Kilo Desktop integration](docs/kilo-desktop.md).
+
 ChatGPT (`codex-desktop`) opens ChatGPT.app and shares `~/.codex/config.toml` plus `~/.agents/skills` with Codex CLI. The model writer stays on Codex CLI. Agent types are CLI, Desktop, IDE, and Plugin; the launch form follows that type and does not switch among them.
 
 Agent labels use the actual application name, or the official CLI/plugin product name. Region, version, and surface are not added to the name. Existing IDs and bindings stay stable; see the [name audit](docs/agent-name-audit.md).

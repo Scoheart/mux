@@ -52,6 +52,9 @@ pub(crate) fn backup(
     if crate::safe_write::has_private_transaction_snapshot(path) {
         return Ok(());
     }
+    if agent == "kilo-desktop" && path.exists() {
+        return Err("kilo_private_transaction_required: edit Kilo Desktop config through a reviewed asset operation".into());
+    }
     if matches!(agent, "qoder-desktop" | "qoder-cli") && path.exists() {
         let content = fs::read_to_string(path).map_err(|_| "qoder_config_unreadable".to_string())?;
         let root = jsonc_parser::cst::CstRootNode::parse(&content, &jsonc_parser::ParseOptions::default())
@@ -144,6 +147,9 @@ pub(crate) fn backup_bytes(
 ) -> Result<(), String> {
     if crate::safe_write::has_private_transaction_snapshot(path) {
         return Ok(());
+    }
+    if agent == "kilo-desktop" {
+        return Err("kilo_private_transaction_required: edit Kilo Desktop config through a reviewed asset operation".into());
     }
     fs::create_dir_all(backups_dir)
         .map_err(|error| format!("failed to create backup directory: {error}"))?;

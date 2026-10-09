@@ -2786,8 +2786,6 @@ body {
 }
 
 .mux-editor-menu-wrap { position: relative; flex-shrink: 0; }
-.mux-editor-trigger { display: flex; align-items: center; justify-content: center; gap: 5px; height: 32px; padding: 0 8px; border: 1px solid var(--border-hairline); border-radius: 9px; background: var(--surface-control); color: var(--text-secondary); cursor: pointer; }
-.mux-editor-trigger:hover, .mux-editor-trigger[aria-expanded="true"] { background: var(--surface-section); color: var(--text-primary); }
 .mux-editor-menu { position: absolute; top: calc(100% + 9px); right: 0; z-index: 620; width: 218px; max-height: min(480px, calc(100vh - 100px)); overflow-y: auto; padding: 7px; border: 1px solid var(--border-hairline); border-radius: 15px; background: var(--surface-popover); box-shadow: 0 16px 40px rgba(0,0,0,.22); animation: mux-editor-enter 130ms ease-out; }
 .mux-editor-menu button { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 38px; border: 0; border-radius: 8px; padding: 8px 10px; background: transparent; color: var(--text-primary); text-align: left; font: 500 13px/1.3 var(--font-sans); cursor: pointer; }
 .mux-editor-menu button:hover, .mux-editor-menu button:focus-visible { background: var(--surface-section); outline: none; }

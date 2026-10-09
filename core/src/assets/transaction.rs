@@ -493,6 +493,18 @@ fn private_transaction_paths(
     zcode_paths.push("~/.zcode/v2/config.json".into());
     let zcode_paths = zcode_paths.iter().map(|path| crate::resources::mcp::scanner::expand_tilde(path)).collect::<BTreeSet<_>>();
     private.extend(plan.target_files.iter().map(|path| crate::resources::mcp::scanner::expand_tilde(path)).filter(|path| zcode_paths.contains(path)));
+    // Desktop providers may already contain credentials written by Kilo.
+    // Protect the complete file for MCP edits as well as Model edits.
+    let mut kilo_paths = crate::resources::model::default_config_paths("kilo-desktop").unwrap_or_default();
+    kilo_paths.extend(settings.agent_config_paths.as_ref()
+        .and_then(|paths| paths.get("kilo-desktop"))
+        .and_then(|entry| entry.model_paths.clone()).unwrap_or_default());
+    if let Some(path) = settings.agents.as_ref().and_then(|agents| agents.get("kilo-desktop"))
+        .and_then(|agent| agent.global.as_ref()) {
+        kilo_paths.push(path.clone());
+    }
+    let kilo_paths = kilo_paths.iter().map(|path| crate::resources::mcp::scanner::expand_tilde(path)).collect::<BTreeSet<_>>();
+    private.extend(plan.target_files.iter().map(|path| crate::resources::mcp::scanner::expand_tilde(path)).filter(|path| kilo_paths.contains(path)));
     Ok(private)
 }
 
@@ -4585,6 +4597,28 @@ mod tests {
         })]));
         let plan = private_transaction_plan(vec![target.to_string_lossy().into_owned()]);
         assert!(private_transaction_paths(&plan, &settings).unwrap().contains(&target));
+    }
+
+    #[test]
+    fn kilo_desktop_model_and_mcp_overrides_always_use_private_snapshots() {
+        let home = TestHome::new("kilo-desktop-private-targets");
+        let default = crate::resources::mcp::scanner::expand_tilde(
+            &crate::resources::model::default_config_paths("kilo-desktop").unwrap()[0]);
+        let model = home.home.join("kilo-model/kilo.jsonc");
+        let mcp = home.home.join("kilo-mcp/kilo.jsonc");
+        let unrelated = home.home.join("other/config.json");
+        let mut settings = Settings::default();
+        settings.agent_config_paths = Some(BTreeMap::from([("kilo-desktop".into(), crate::settings::AgentConfigPathOverride {
+            model_paths: Some(vec![model.to_string_lossy().into_owned()]), ..Default::default()
+        })]));
+        let mut definition = crate::agents::builtin_agents()["kilo-desktop"].clone();
+        definition.global = Some(mcp.to_string_lossy().into_owned());
+        settings.agents = Some(BTreeMap::from([("kilo-desktop".into(), definition)]));
+        let plan = private_transaction_plan([&default, &model, &mcp, &unrelated].iter()
+            .map(|path| path.to_string_lossy().into_owned()).collect());
+        let private = private_transaction_paths(&plan, &settings).unwrap();
+        for path in [&default, &model, &mcp] { assert!(private.contains(path)); }
+        assert!(!private.contains(&unrelated));
     }
 
     #[test]

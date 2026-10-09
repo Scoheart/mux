@@ -388,7 +388,7 @@ pub fn plan_model_adoption(
     for candidate in &selected {
         // Imports into these shared registries get a new MUX-owned provider, preserving the external
         // provider and every sibling model instead of adopting its identity.
-        if agent_uses_native_id(&candidate.agent_id) && !matches!(candidate.agent_id.as_str(), "zcode" | "qoder-cli" | "opencode-desktop") {
+        if agent_uses_native_id(&candidate.agent_id) && !matches!(candidate.agent_id.as_str(), "zcode" | "qoder-cli" | "opencode-desktop" | "kilo-desktop") {
             draft
                 .native_ids
                 .insert(candidate.agent_id.clone(), candidate.native_id.clone());
@@ -412,7 +412,7 @@ pub fn plan_model_adoption(
     let mut after = BTreeMap::new();
     for candidate in &selected {
         let current = settings.model_selection(&candidate.agent_id);
-        if matches!(candidate.agent_id.as_str(), "zcode" | "qoder-cli" | "opencode-desktop") {
+        if matches!(candidate.agent_id.as_str(), "zcode" | "qoder-cli" | "opencode-desktop" | "kilo-desktop") {
             // ModelAdopt intentionally never writes native configuration. Import
             // only the central asset; an explicit Add later creates its MUX slot.
             before.insert(candidate.agent_id.clone(), current.clone());
@@ -472,7 +472,10 @@ pub fn plan_model_adoption(
     if managed_profile_id.is_none() && selected.iter().any(|candidate| candidate.agent_id == "opencode-desktop") {
         summary.push("仅导入中央模型库，保留共享的 OpenCode 原配置；请到 OpenCode Desktop 页面添加中央模型".into());
     }
-    let linked_agents = selected.iter().filter(|candidate| !matches!(candidate.agent_id.as_str(), "zcode" | "qoder-cli" | "opencode-desktop")).count();
+    if managed_profile_id.is_none() && selected.iter().any(|candidate| candidate.agent_id == "kilo-desktop") {
+        summary.push("仅导入中央模型库，保留 Kilo Desktop 原配置；请到 Kilo 页面添加中央模型".into());
+    }
+    let linked_agents = selected.iter().filter(|candidate| !matches!(candidate.agent_id.as_str(), "zcode" | "qoder-cli" | "opencode-desktop" | "kilo-desktop")).count();
     if linked_agents > 0 {
         summary.push(format!("关联 {} 个 Agent 中的现有模型配置", linked_agents));
     }
@@ -530,7 +533,7 @@ fn extract_models_scoped(settings: &Settings, agent_ids: &BTreeSet<String>) -> R
             "codex" => extract_codex(&paths[0]),
             "grok-build" => extract_grok(&paths[0]),
             "pi" => extract_pi(&paths[0], &paths[1]),
-            "opencode" | "opencode-desktop" | "kilo-code" => extract_open_code(&agent_id, &paths[0]),
+            "opencode" | "opencode-desktop" | "kilo-code" | "kilo-desktop" => extract_open_code(&agent_id, &paths[0]),
             "qoder-desktop" | "qoder-cli" => extract_qoder(&agent_id, &paths[0]),
             "zcode" => extract_zcode(&paths[0]),
             "qwen-code" => extract_qwen(&paths[0]),
@@ -561,6 +564,7 @@ fn agent_uses_native_id(agent_id: &str) -> bool {
             | "opencode"
             | "opencode-desktop"
             | "kilo-code"
+            | "kilo-desktop"
             | "qoder-desktop"
             | "qoder-cli"
             | "zcode"
@@ -1494,7 +1498,7 @@ fn profile_owns_candidate(
     explicit_native_id.is_none()
         || !matches!(
             candidate.agent_id.as_str(),
-            "pi" | "opencode" | "opencode-desktop" | "kilo-code" | "qoder-desktop" | "qoder-cli" | "zcode" | "crush" | "goose"
+            "pi" | "opencode" | "opencode-desktop" | "kilo-code" | "kilo-desktop" | "qoder-desktop" | "qoder-cli" | "zcode" | "crush" | "goose"
         )
         || profile.model == candidate.model
 }
@@ -1502,7 +1506,7 @@ fn profile_owns_candidate(
 fn generated_native_id(settings: &Settings, agent_id: &str, profile: &ModelProfile) -> String {
     match agent_id {
         "claude-code" => "claude-settings".into(),
-        "qoder-cli" | "opencode-desktop" => crate::resources::model::adapters::native_provider_id(agent_id, profile),
+        "qoder-cli" | "opencode-desktop" | "kilo-desktop" => crate::resources::model::adapters::native_provider_id(agent_id, profile),
         "pi" => crate::resources::model::generated_pi_provider_id(settings, profile),
         "qwen-code" => format!(
             "{}:{}:{}",
@@ -2237,6 +2241,25 @@ env_key = "GATEWAY_KEY"
         let settings = load_settings_strict().unwrap();
         assert!(settings.model_selection("opencode-desktop").profiles.is_empty());
         assert!(!settings.model_profiles.unwrap().values().next().unwrap().native_ids.contains_key("opencode-desktop"));
+        assert_eq!(fs::read_to_string(path).unwrap(), original);
+    }
+
+    #[test]
+    fn kilo_desktop_import_keeps_native_providers_and_does_not_assign_a_consumer() {
+        let _home = TestHome::new("kilo-desktop-import");
+        let path = expand_tilde(&crate::resources::model::default_config_paths("kilo-desktop").unwrap()[0]);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = r#"{"provider":{"external":{"npm":"@ai-sdk/openai-compatible","options":{"baseURL":"https://example.invalid/v1","apiKey":"{env:KILO_FIXTURE_KEY}"},"models":{"model":{"name":"Example"}}}}}"#;
+        fs::write(&path, original).unwrap();
+        let candidate = list_model_adoption_candidates().unwrap().into_iter()
+            .find(|candidate| candidate.agent_id == "kilo-desktop").unwrap();
+        let plan = plan_model_adoption(PlanModelAdoptionRequest {
+            candidate_fingerprints: BTreeMap::from([(candidate.candidate_id, candidate.fingerprint)]),
+        }).unwrap();
+        commit_asset_operation(AssetCommitRequest { operation_id: plan.operation_id, candidate_hash: plan.candidate_hash }).unwrap();
+        let settings = load_settings_strict().unwrap();
+        assert!(settings.model_selection("kilo-desktop").profiles.is_empty());
+        assert!(!settings.model_profiles.unwrap().values().next().unwrap().native_ids.contains_key("kilo-desktop"));
         assert_eq!(fs::read_to_string(path).unwrap(), original);
     }
 

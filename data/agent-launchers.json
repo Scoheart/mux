@@ -548,5 +548,11 @@
       "mimo"
     ],
     "args": []
+  },
+  "kilo-desktop": {
+    "kind": "app",
+    "candidates": [
+      "Kilo"
+    ]
   }
 }

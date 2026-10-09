@@ -83,5 +83,10 @@
   "mimo-code": {
     "mcp": "https://github.com/XiaomiMiMo/MiMo-Code/blob/6babeb0b98f9b4818bddf04a4331edfee04dbf85/packages/cli/src/config/config.ts",
     "skill": "https://github.com/XiaomiMiMo/MiMo-Code/blob/6babeb0b98f9b4818bddf04a4331edfee04dbf85/packages/cli/src/skill/index.ts"
+  },
+  "kilo-desktop": {
+    "mcp": "https://kilo.ai/docs/desktop/settings/ai",
+    "skill": "https://kilo.ai/docs/customize/skills",
+    "model": "https://kilo.ai/docs/desktop/settings/ai"
   }
 }

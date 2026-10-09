@@ -4180,5 +4180,32 @@
     "codec": "standard",
     "layout": "map",
     "transports": []
+  },
+  "kilo-desktop": {
+    "global": null,
+    "project": null,
+    "format": "unknown",
+    "key": "",
+    "enabled": true,
+    "builtin": true,
+    "name": "Kilo",
+    "docs": "https://kilo.ai/docs/desktop/overview",
+    "note": "Kilo Desktop 官方应用；可写能力由 agents.json 的核验定义提供。",
+    "category": "desktop",
+    "evidence": "official-source",
+    "verified_at": "2026-10-07",
+    "codec": "standard",
+    "layout": "map",
+    "transports": [],
+    "probes": [
+      {
+        "kind": "path",
+        "path": "/Applications/Kilo.app"
+      },
+      {
+        "kind": "path",
+        "path": "~/Applications/Kilo.app"
+      }
+    ]
   }
 }

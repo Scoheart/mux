@@ -1,12 +1,14 @@
 import { readLocalSetting, writeLocalSetting } from "../lib/localSettings";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { formatError } from "../lib/format";
 import { useToast } from "./Toast";
+import { claimLayerKeyboardEvent } from "./ui";
 
 import { AgentGlyph } from "./brandIcons";
-import { ChevronDownIcon, EditIcon, FolderIcon } from "./icons";
+import { ChevronDownIcon, EditIcon, FolderIcon, PlusIcon } from "./icons";
 
 import textEditIcon from "../assets/editors/textedit.png";
 import xcodeIcon from "../assets/editors/xcode.png";
@@ -27,7 +29,7 @@ function EditorIcon({ editor }: { editor: string }) {
   editor = editorLabel(editor);
   if (EDITOR_ICONS[editor]) return <img src={EDITOR_ICONS[editor]} alt="" aria-hidden="true" draggable={false}
     style={{ width: 20, height: 20, objectFit: "contain", flexShrink: 0 }} />;
-  if (ICONS[editor]) return <AgentGlyph id={ICONS[editor]} size={20} />;
+  if (ICONS[editor]) return <span aria-hidden="true"><AgentGlyph id={ICONS[editor]} size={20} /></span>;
   if (editor === "Sublime Text") return <span className="mux-editor-sublime" aria-hidden="true">S</span>;
   return editor ? <EditIcon className="w-4 h-4" /> : <FolderIcon className="w-4 h-4" />;
 }
@@ -44,7 +46,13 @@ function editorLabel(editor: string): string {
   return editor.split(/[\\/]/).pop()?.replace(/\.app$/i, "") || editor;
 }
 
+function editorDisplayName(editor: string): string {
+  const name = editorLabel(editor);
+  return name === "Visual Studio Code" ? "VS Code" : name;
+}
+
 export function FileEditorSelect({ showLabel = false }: { showLabel?: boolean }) {
+  const { t } = useTranslation();
   const [editor, setEditor] = useState(() => preferredFileEditor() ?? "");
   const [installed, setInstalled] = useState<Array<{name: string; path: string}>>([]);
   const [choosing, setChoosing] = useState(false);
@@ -67,33 +75,38 @@ export function FileEditorSelect({ showLabel = false }: { showLabel?: boolean })
   async function change(value: string) {
     setExpanded(false);
     trigger.current?.focus();
+    if (value === editor) return;
     setChoosing(true);
     try {
       let selected = value;
       if (value === "__choose__") {
         const path = await open({
-          title: "选择用于打开文件的编辑器",
+          title: t("fileEditor.choose"),
           defaultPath: "/Applications",
-          filters: [{ name: "应用程序", extensions: ["app"] }],
+          filters: [{ name: t("fileEditor.applications"), extensions: ["app"] }],
           multiple: false,
           directory: false,
         });
         if (!path) return;
         selected = path;
       }
+      if (selected === editor) return;
       if (selected) writeLocalSetting(STORAGE_KEY, selected);
       else writeLocalSetting(STORAGE_KEY, null);
       setEditor(selected);
-      showToast({ kind: "success", msg: selected ? `文件将使用 ${editorLabel(selected)} 打开` : "已恢复系统默认应用" });
+      showToast({ kind: "success", msg: selected
+        ? t("fileEditor.saved", { editor: editorDisplayName(selected) })
+        : t("fileEditor.reset") });
     } catch (error) {
-      showToast({ kind: "error", msg: `无法保存编辑器：${formatError(error)}` });
+      showToast({ kind: "error", msg: t("fileEditor.saveFailed", { error: formatError(error) }) });
     } finally {
       setChoosing(false);
     }
   }
 
   const available = installed.length ? installed.map((item) => item.path) : EDITORS;
-  const options = [...available, ...(editor && !available.includes(editor) ? [editor] : []), ""];
+  const options = ["", ...available, ...(editor && !available.includes(editor) ? [editor] : [])];
+  const selectedLabel = editor ? editorDisplayName(editor) : t("fileEditor.systemDefault");
   return (
     <div className="mux-editor-menu-wrap" ref={root}
       onBlur={(event) => {
@@ -101,7 +114,10 @@ export function FileEditorSelect({ showLabel = false }: { showLabel?: boolean })
         if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setExpanded(false);
       }}
       onKeyDown={(event) => {
-        if (event.key === "Escape") { event.preventDefault(); setExpanded(false); trigger.current?.focus(); }
+        if (expanded && event.key === "Escape") {
+          claimLayerKeyboardEvent(event.nativeEvent);
+          event.preventDefault(); setExpanded(false); trigger.current?.focus();
+        }
         if (expanded && ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
           event.preventDefault();
           const items = Array.from(root.current?.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]') ?? []);
@@ -110,24 +126,27 @@ export function FileEditorSelect({ showLabel = false }: { showLabel?: boolean })
           items[next]?.focus();
         }
       }}>
-      <button type="button" ref={trigger} className="mux-editor-trigger"
-        aria-label={`文件编辑器：${editor ? editorLabel(editor) : "系统默认"}`}
-        title="选择打开文件的编辑器" aria-haspopup="menu" aria-expanded={expanded}
+      <button type="button" ref={trigger} className="mux-model-field mux-form-select-trigger mux-editor-trigger"
+        data-open={expanded ? "true" : undefined}
+        aria-label={t("fileEditor.selected", { editor: selectedLabel })}
+        title={t("fileEditor.choose")} aria-haspopup="menu" aria-expanded={expanded}
         disabled={choosing} onClick={() => setExpanded((value) => !value)}
         onKeyDown={(event) => { if (!expanded && event.key === "ArrowDown") { event.preventDefault(); setExpanded(true); } }}>
-        <EditorIcon editor={editor} />{showLabel && <span className="mux-editor-selected-label">{editor ? editorLabel(editor) : "系统默认"}</span>}<ChevronDownIcon className="w-3 h-3" />
+        <span className="mux-form-select-value"><span className="mux-editor-selection">
+          <span className="mux-editor-glyph"><EditorIcon editor={editor} /></span>{showLabel && <span className="mux-editor-selected-label">{selectedLabel}</span>}
+        </span></span><ChevronDownIcon className="mux-form-select-chevron" />
       </button>
-      {expanded && <div className="mux-editor-menu" role="menu" aria-label="打开文件的编辑器">
+      {expanded && <div className="mux-editor-menu" role="menu" aria-label={t("fileEditor.label")}>
         {options.map((value) => <button type="button" role="menuitemradio" aria-checked={value === editor}
           onMouseDown={(event) => event.preventDefault()}
           key={value || "default"} onClick={() => { void change(value); }}>
-          <EditorIcon editor={value} />
-          <span>{value === "Visual Studio Code" ? "VS Code" : value ? editorLabel(value) : "系统默认应用"}</span>
+          <span className="mux-editor-glyph"><EditorIcon editor={value} /></span>
+          <span>{value ? editorDisplayName(value) : t("fileEditor.systemDefault")}</span>
           {value === editor && <span className="mux-editor-check" aria-hidden="true">✓</span>}
         </button>)}
         <div role="separator" className="mux-editor-separator" />
         <button type="button" role="menuitem" onMouseDown={(event) => event.preventDefault()} onClick={() => { void change("__choose__"); }}>
-          <EditIcon className="w-4 h-4" /><span>选择其他应用…</span>
+          <PlusIcon className="w-4 h-4" /><span>{t("fileEditor.otherApplication")}</span>
         </button>
       </div>}
     </div>

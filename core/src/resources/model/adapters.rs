@@ -49,7 +49,7 @@ pub fn prepare_apply(
     active: bool,
 ) -> Result<Vec<PreparedModelFile>, String> {
     let prepared = match agent_id {
-        "opencode" | "opencode-desktop" | "kilo-code" => prepare_open_code(agent_id, &paths[0], profile, active, None)?,
+        "opencode" | "opencode-desktop" | "kilo-code" | "kilo-desktop" => prepare_open_code(agent_id, &paths[0], profile, active, None)?,
         "zcode" => zcode::prepare(&paths[0], profile, None)?,
         "qoder-desktop" | "qoder-cli" => qoder::prepare(agent_id, &paths[0], profile, active, None)?,
         "qwen-code" => prepare_qwen(&paths[0], profile, active)?,
@@ -90,7 +90,7 @@ pub fn prepare_clear(
     profile: &ModelProfile,
 ) -> Result<Vec<PreparedModelFile>, String> {
     let prepared = match agent_id {
-        "opencode" | "opencode-desktop" | "kilo-code" => prepare_clear_open_code(agent_id, &paths[0], profile)?,
+        "opencode" | "opencode-desktop" | "kilo-code" | "kilo-desktop" => prepare_clear_open_code(agent_id, &paths[0], profile)?,
         "zcode" => zcode::clear(&paths[0], profile)?,
         "qoder-desktop" | "qoder-cli" => qoder::clear(agent_id, &paths[0], profile)?,
         "qwen-code" => prepare_clear_qwen(&paths[0], profile)?,
@@ -117,7 +117,7 @@ pub fn prepare_clear_all_for_targets(
     reviewed_targets: Option<&[PathBuf]>,
 ) -> Result<Vec<PreparedModelFile>, String> {
     match agent_id {
-        "opencode" | "opencode-desktop" | "kilo-code" => Ok(vec![prepare_clear_all_open_code(&paths[0])?]),
+        "opencode" | "opencode-desktop" | "kilo-code" | "kilo-desktop" => Ok(vec![prepare_clear_all_open_code(&paths[0])?]),
         "zcode" => Ok(vec![zcode::clear_all(&paths[0])?]),
         "qoder-desktop" | "qoder-cli" => Ok(vec![qoder::clear_all(&paths[0])?]),
         "qwen-code" => Ok(vec![prepare_clear_all_qwen(&paths[0])?]),
@@ -281,7 +281,7 @@ pub fn observe_external(
             .and_then(|root| root.to_serde_value())
             .and_then(|value| value.as_object().cloned())
             .is_some_and(|root| match agent_id {
-                "opencode" | "opencode-desktop" | "kilo-code" => {
+                "opencode" | "opencode-desktop" | "kilo-code" | "kilo-desktop" => {
                     root.get("model").and_then(Value::as_str).is_some()
                         || root
                             .get("provider")
@@ -335,7 +335,7 @@ pub fn observe_active(
             Err(_) => return ObservedActiveModel::Conflicted,
             Ok(root) => root.and_then(|root| root.pointer("/model/name").and_then(Value::as_str).map(str::to_string)),
         },
-        "opencode" | "opencode-desktop" | "kilo-code" => json_string(&paths[0], &["model"]),
+        "opencode" | "opencode-desktop" | "kilo-code" | "kilo-desktop" => json_string(&paths[0], &["model"]),
         "qwen-code" => json_string(&paths[0], &["model", "name"])
             .zip(json_string(
                 &paths[0],
@@ -362,7 +362,7 @@ pub fn observe_active(
     let matches: Vec<_> = profiles
         .values()
         .filter(|profile| match agent_id {
-            "qoder-cli" | "opencode" | "opencode-desktop" | "kilo-code" => {
+            "qoder-cli" | "opencode" | "opencode-desktop" | "kilo-code" | "kilo-desktop" => {
                 selected == format!("{}/{}", provider_id_for(agent_id, profile), profile.model)
                     || (agent_id == "opencode"
                         && selected == format!("{}/{}", provider_id(&profile.id), profile.model))
@@ -419,6 +419,8 @@ fn provider_id_for(agent_id: &str, profile: &ModelProfile) -> String {
                 super::generated_open_code_provider_id(&crate::settings::load_settings(), profile)
             } else if agent_id == "opencode-desktop" {
                 format!("mux_desktop_{}", &provider_id(&profile.id)[4..])
+            } else if agent_id == "kilo-desktop" {
+                format!("mux_kilo_desktop_{}", &provider_id(&profile.id)[4..])
             } else if agent_id == "qoder-cli" {
                 format!("mux_cli_{}", &provider_id(&profile.id)[4..])
             } else {
@@ -2635,6 +2637,35 @@ other_policy: strict # keep policy
         assert_eq!(after["provider"][&cli_id], before["provider"][&cli_id]);
         assert_eq!(after["model"], before["model"]);
         assert_eq!(after["permission"], before["permission"]);
+    }
+
+    #[test]
+    fn kilo_desktop_models_preserve_native_services_and_do_not_change_cli_defaults() {
+        let home = crate::testenv::TestHome::new("kilo-desktop-models");
+        let path = home.home.join("desktop.jsonc");
+        let cli_path = home.home.join("cli.jsonc");
+        let original = include_str!("../../../tests/fixtures/kilo-desktop.jsonc");
+        fs::write(&path, original).unwrap();
+        fs::write(&cli_path, "{\"model\":\"external/cli-model\"}").unwrap();
+        let managed = profile(ModelProtocol::OpenaiCompletions);
+        let desktop_id = native_provider_id("kilo-desktop", &managed);
+        assert_ne!(desktop_id, native_provider_id("kilo-code", &managed));
+        let paths = std::slice::from_ref(&path);
+        let prepared = prepare_apply("kilo-desktop", paths, &managed, false).unwrap();
+        fs::write(&path, prepared[0].content.as_ref().unwrap()).unwrap();
+        let before = read_jsonc(&path).unwrap().0.to_serde_value().unwrap();
+        assert!(before.get("model").is_none());
+        assert!(before["provider"].get(&desktop_id).is_some());
+        let cleared = prepare_clear("kilo-desktop", paths, &managed).unwrap();
+        let content = cleared[0].content.as_ref().unwrap();
+        assert!(content.contains("// Desktop-owned providers and permissions"));
+        fs::write(&path, content).unwrap();
+        let after = read_jsonc(&path).unwrap().0.to_serde_value().unwrap();
+        assert_eq!(after["provider"]["desktop-local"], before["provider"]["desktop-local"]);
+        assert_eq!(after["mcp"], before["mcp"]);
+        assert_eq!(after["permission"], before["permission"]);
+        assert!(after["provider"].get(&desktop_id).is_none());
+        assert_eq!(fs::read_to_string(cli_path).unwrap(), "{\"model\":\"external/cli-model\"}");
     }
 
 }

@@ -1,5 +1,15 @@
 # Provider Catalog sources
 
+## GMI Cloud — 2026-10-09
+
+`gmi-cloud` is a separate gateway Provider with Chat Completions at `https://api.gmi-serving.com/v1/chat/completions`, Responses at `https://api.gmi-serving.com/v1/responses`, and Anthropic Messages at `https://api.gmi-serving.com/v1/messages`. Combining the documented protocol bases gives the normalized MUX Base URL `https://api.gmi-serving.com` and paths `/v1/chat/completions`, `/v1/responses`, and `/v1/messages`.
+
+Official sources: [LLM API](https://docs.gmicloud.ai/inference-engine/api-reference/llm-api-reference), [Codex integration](https://docs.gmicloud.ai/coding-tools/codex), [Claude Code integration](https://docs.gmicloud.ai/coding-tools/claude-code), and [API key guide](https://docs.gmicloud.ai/cluster-engine/user-management/api-keys). The guide links `https://console.gmicloud.ai/user-setting/api-keys`; its unauthenticated redirect preserves the key-page destination behind sign-in.
+
+Model discovery uses the documented authenticated `GET /v1/models`, with the existing OpenAI catalog decoder and required Bearer credential policy. An unauthenticated request returned HTTP 401 (`API key is required`). Users supply their own credential source; no account, key, or saved connection is created by adding this template.
+
+[Qwen's announcement](https://x.com/Alibaba_Qwen/status/2108401307577090259) advertises temporary access to Qwen3.8 Max/Flash and Wan3.0. The published text catalog does not yet establish the two new chat model IDs. Load exact IDs from the account's live catalog or enter a verified ID manually; do not hard-code guessed spellings or permanent free pricing. Wan3.0 uses the separate video API and is not an Agent chat profile. GMI's router API is also separate from these protocol endpoints.
+
 ## Official credential portals — 2026-10-04
 
 `data/provider-links.json` is the default link catalog for all 102 built-in Provider templates (103 templates including Custom). Each entry retains `docs_url` and adds a typed `portal` containing a credential-free HTTPS URL and one of `api-key`, `console`, or `setup`. Core validates coverage, known Provider IDs, URL schemes, and absence of embedded credentials before serializing it. Custom and unknown connections have no default vendor link; no website is inferred from the user's Base URL.

@@ -1,0 +1,31 @@
+{
+  // Desktop-owned providers and permissions must survive MCP changes.
+  "provider": {
+    "desktop-local": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": { "baseURL": "http://127.0.0.1:51009/v1" },
+      "models": { "local-model": { "name": "Desktop local model" } }
+    }
+  },
+  "permission": { "suggest": "deny", "edit": "ask" },
+  "mcp": {
+    "desktop-webmcp": {
+      "type": "remote",
+      "url": "http://127.0.0.1:51010/mcp",
+      "enabled": true
+    },
+    "local-tools": {
+      "type": "local",
+      "command": ["npx", "-y", "old-server"],
+      "environment": { "MODE": "fixture" },
+      "enabled": false,
+      "timeout": 9000
+    },
+    "remote-tools": {
+      "type": "remote",
+      "url": "https://old.example.test/mcp",
+      "oauth": false,
+      "enabled": true
+    }
+  }
+}

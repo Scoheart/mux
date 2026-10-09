@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.12.0](https://github.com/Scoheart/mux/compare/v1.11.0...v1.12.0) (2026-10-09)
+
+### Changes
+
+* feat(integrations): add Kilo Desktop and GMI Cloud ([3787892](https://github.com/Scoheart/mux/commit/37878923b417556f61983251c24de73d93eecc9d))
+
 ## [1.11.0](https://github.com/Scoheart/mux/compare/v1.10.0...v1.11.0) (2026-10-05)
 
 ### Changes

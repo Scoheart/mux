@@ -1,78 +1,57 @@
 //! Full-page catalog-entry editor. Navigate fields with ↑↓; Enter edits the
-//! focused field (or toggles transport); Ctrl-S saves.
+//! focused field (or toggles transport); Ctrl-S saves. Key hints live in the
+//! footer, like every other screen.
 
 use ratatui::layout::Rect;
-use ratatui::style::{Style, Stylize};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::text::Line;
+use ratatui::widgets::{Padding, Paragraph};
 use ratatui::Frame;
 
-use crate::tui::model::{EditorState, Model, EDITOR_FIELDS};
+use super::widgets::{self, Field};
+use crate::tui::model::{Model, EDITOR_FIELDS};
 
 pub fn render(model: &Model, f: &mut Frame, area: Rect) {
     let Some(ed) = model.editor.as_ref() else {
         return;
     };
     let title = if ed.original_key.is_none() {
-        " 新建 MCP "
+        "新建 MCP"
     } else {
-        " 编辑 MCP "
+        "编辑 MCP"
     };
 
     let labels = ed.labels();
-    let mut lines: Vec<Line> = Vec::new();
-    for (i, label) in labels.iter().enumerate().take(EDITOR_FIELDS) {
-        lines.push(field_line(ed, i, label));
-    }
-    lines.push(Line::from(""));
-    if let Some(err) = &ed.error {
-        lines.push(Line::from(Span::from(format!("✗ {err}")).red()));
-    } else if ed.field == 3 && ed.transport_editable() {
-        lines.push(Line::from(Span::from("Enter 切换 stdio ↔ http").dim()));
+    let fields: Vec<Field> = labels
+        .iter()
+        .enumerate()
+        .take(EDITOR_FIELDS)
+        .map(|(i, label)| Field {
+            label,
+            value: ed.value(i),
+            focused: i == ed.field,
+            editing: i == ed.field && ed.editing,
+            locked: (i == 0 && !ed.name_editable()) || (i == 3 && !ed.transport_editable()),
+        })
+        .collect();
+    let mut lines = widgets::form_lines(&fields);
+
+    let help = if ed.field == 3 && ed.transport_editable() {
+        Some("Enter 切换 stdio ↔ http")
     } else if !ed.name_editable() && ed.field == 0 {
-        lines.push(Line::from(
-            Span::from("名称属于资产标识，编辑时不可修改").dim(),
-        ));
+        Some("名称属于资产标识，编辑时不可修改")
     } else if !ed.transport_editable() && ed.field == 3 {
-        lines.push(Line::from(
-            Span::from("传输类型属于资产标识，编辑时不可修改").dim(),
-        ));
+        Some("传输类型属于资产标识，编辑时不可修改")
+    } else {
+        None
+    };
+    if let Some(note) = widgets::form_note(ed.error.as_deref(), help) {
+        lines.push(Line::from(""));
+        lines.push(note);
     }
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::new().cyan())
-        .title(Span::from(title).bold())
-        .title_bottom(Line::from(
-            Span::from(" ↑↓ 字段 · Enter 编辑/切换 · Ctrl-S 保存 · r 恢复默认 · Esc 取消 ").dim(),
-        ));
+    let mut block = widgets::panel(title, true).padding(Padding::new(1, 2, 1, 0));
+    if let Some(key) = &ed.original_key {
+        block = block.title_top(widgets::corner_note(key.clone()));
+    }
     f.render_widget(Paragraph::new(lines).block(block), area);
-}
-
-fn field_line(ed: &EditorState, i: usize, label: &str) -> Line<'static> {
-    let focused = i == ed.field;
-    let caret = if focused {
-        Span::from("› ").cyan().bold()
-    } else {
-        Span::from("  ")
-    };
-    let label_span = Span::from(format!("{label:<14}")).dim();
-
-    let raw = ed.value(i);
-    let editing = focused && ed.editing;
-    let value = if raw.is_empty() && !editing {
-        Span::from("—").dim()
-    } else if (i == 0 && !ed.name_editable()) || (i == 3 && !ed.transport_editable()) {
-        Span::from(raw).dim()
-    } else if focused {
-        Span::from(raw).white()
-    } else {
-        Span::from(raw)
-    };
-
-    let mut spans = vec![caret, label_span, value];
-    if editing {
-        spans.push(Span::from("▏").cyan());
-    }
-    Line::from(spans)
 }

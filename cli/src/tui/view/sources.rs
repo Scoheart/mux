@@ -1,18 +1,20 @@
-//! Sources screen: the list of catalog sources with kind, count, and state.
+//! Sources screen: catalog sources with state, kind, server count and any
+//! sync error on its own line.
 
-use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Style, Stylize};
+use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, ListItem, Paragraph};
+use ratatui::widgets::ListItem;
 use ratatui::Frame;
 
-use super::theme::render_list;
+use super::theme::{self, glyph, Tone};
+use super::widgets::{self, fit, width};
 use crate::tui::model::Model;
 use mux_core::application::mcp::sources::SourceView;
 
-pub fn render(model: &Model, f: &mut Frame, area: Rect) {
-    let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(area);
+const NAME_MIN: usize = 10;
+const NAME_MAX: usize = 32;
 
+pub fn render(model: &Model, f: &mut Frame, area: Rect) {
     let enabled: u32 = model
         .data
         .sources
@@ -20,55 +22,85 @@ pub fn render(model: &Model, f: &mut Frame, area: Rect) {
         .filter(|s| s.enabled)
         .map(|s| s.server_count)
         .sum();
-    let header = Line::from(vec![
-        Span::from(format!("共 {enabled} 个 server")).bold(),
-        Span::from("（已启用来源）").dim(),
-    ]);
-    f.render_widget(Paragraph::new(header), rows[0]);
+    let block = widgets::panel("来源", true).title_top(widgets::corner_note(format!(
+        "共 {enabled} 个 server（已启用来源）"
+    )));
 
-    let block = Block::default()
-        .borders(Borders::TOP)
-        .border_style(Style::new().dim());
     if model.data.sources.is_empty() {
-        let msg = "还没有来源。订阅远程配置、导入本地配置，或添加 Mux 精选。";
-        f.render_widget(
-            Paragraph::new(Line::from(Span::from(msg).dim())).block(block),
-            rows[1],
+        let inner = block.inner(area);
+        f.render_widget(block, area);
+        widgets::empty_state(
+            f,
+            inner,
+            "还没有来源。",
+            &["订阅远程配置、导入本地配置，或添加 Mux 精选。"],
         );
         return;
     }
 
-    let items: Vec<ListItem> = model
-        .data
-        .sources
+    let sources = &model.data.sources;
+    let cursor = model.sources_ui.cursor.min(sources.len() - 1);
+    let name_w = sources
         .iter()
-        .map(|s| ListItem::new(source_line(s)))
+        .map(|s| width(&s.name))
+        .max()
+        .unwrap_or(0)
+        .clamp(NAME_MIN, NAME_MAX);
+    let count_w = sources
+        .iter()
+        .map(|s| s.server_count.to_string().len())
+        .max()
+        .unwrap_or(1);
+
+    let items: Vec<ListItem> = sources
+        .iter()
+        .enumerate()
+        .map(|(i, s)| ListItem::new(source_lines(s, i == cursor, name_w, count_w)))
         .collect();
-    render_list(f, rows[1], block, items, model.sources_ui.cursor, true);
+    widgets::render_list(f, area, block, items, cursor, true);
 }
 
-fn source_line(s: &SourceView) -> Line<'static> {
-    let badge = if s.managed {
-        Span::from(" MUX 维护 ").black().on_yellow()
-    } else if s.kind == "remote" {
-        Span::from(" 订阅 ").black().on_cyan()
-    } else {
-        Span::from(" 本地 ").black().on_green()
-    };
+fn source_lines(
+    s: &SourceView,
+    selected: bool,
+    name_w: usize,
+    count_w: usize,
+) -> Vec<Line<'static>> {
     let state = if s.enabled {
-        Span::from("✓ 启用").green()
+        Span::styled(format!("{} 启用", glyph::ON), theme::fg(Tone::Success))
     } else {
-        Span::from("✗ 停用").dim()
+        Span::styled(format!("{} 停用", glyph::OFF), theme::muted())
     };
-    let mut spans = vec![
-        Span::from(s.name.clone()).bold(),
-        Span::from("  "),
-        badge,
-        Span::from(format!("  {} server  ", s.server_count)).dim(),
+    let (kind, tone) = if s.managed {
+        ("MUX 维护", Tone::Warning)
+    } else if s.kind == "remote" {
+        ("订阅", Tone::Accent)
+    } else {
+        ("本地", Tone::Success)
+    };
+    let name_style = if selected {
+        theme::selected(true)
+    } else if s.enabled {
+        theme::text()
+    } else {
+        theme::muted()
+    };
+    let mut lines = vec![Line::from(vec![
         state,
-    ];
+        Span::raw(theme::GAP),
+        Span::styled(fit(&s.name, name_w), name_style),
+        Span::raw(theme::GAP),
+        Span::styled(fit(kind, width("MUX 维护")), theme::fg(tone)),
+        Span::raw(theme::GAP),
+        Span::styled(format!("{:>count_w$}", s.server_count), theme::strong()),
+        Span::styled(" server", theme::muted()),
+    ])];
     if let Some(err) = &s.error {
-        spans.push(Span::from(format!("  ⚠ {err}")).red());
+        lines.push(Line::from(vec![
+            Span::raw(" ".repeat(width("● 启用") + theme::GAP.len())),
+            Span::styled(format!(" {} ", glyph::WARN), theme::chip(Tone::Danger)),
+            Span::styled(format!(" {err}"), theme::fg(Tone::Danger)),
+        ]));
     }
-    Line::from(spans)
+    lines
 }

@@ -1,19 +1,25 @@
-//! Registry screen: search box, origin filter, and the catalog list.
+//! Registry screen: search field, origin filter chips, and the catalog table.
 
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, ListItem, Paragraph};
+use ratatui::widgets::{ListItem, Paragraph};
 use ratatui::Frame;
 
-use super::theme::{origin_tag, render_list, transport_pill};
-use crate::tui::model::{Model, OriginFilter};
+use super::theme::{self, glyph, Tone};
+use super::widgets::{self, fit, width};
+use crate::tui::model::{bucket_of, Model, OriginFilter};
+use mux_core::domain::types::RegistryEntry;
+
+/// Name column bounds (cells): wide enough for typical server names without
+/// starving the description on an 80-column terminal.
+const NAME_MIN: usize = 12;
+const NAME_MAX: usize = 26;
 
 pub fn render(model: &Model, f: &mut Frame, area: Rect) {
     let rows = Layout::vertical([
-        Constraint::Length(1), // search
-        Constraint::Length(1), // filter
-        Constraint::Min(0),    // list
+        Constraint::Length(3), // search field
+        Constraint::Length(1), // filter chips
+        Constraint::Min(0),    // catalog
     ])
     .split(area);
 
@@ -24,82 +30,151 @@ pub fn render(model: &Model, f: &mut Frame, area: Rect) {
 
 fn render_search(model: &Model, f: &mut Frame, area: Rect) {
     let ui = &model.registry_ui;
-    let mut spans = vec![Span::from("🔎 ")];
-    if ui.query.is_empty() && !ui.searching {
-        spans.push(Span::from("按 / 搜索").dim());
+    let block = widgets::panel("搜索", ui.searching);
+    let prompt_style = if ui.searching {
+        theme::key()
     } else {
-        spans.push(Span::from(ui.query.clone()));
+        theme::muted()
+    };
+    let mut spans = vec![Span::styled(format!("{} ", glyph::PROMPT), prompt_style)];
+    if ui.query.is_empty() && !ui.searching {
+        spans.push(Span::styled("按 / 搜索", theme::muted()));
+    } else {
+        spans.push(Span::styled(ui.query.clone(), theme::strong()));
         if ui.searching {
-            spans.push(Span::from("▏").cyan()); // cursor caret
+            spans.push(Span::styled(glyph::CARET, theme::fg(Tone::Accent)));
         }
     }
-    f.render_widget(Paragraph::new(Line::from(spans)), area);
+    f.render_widget(Paragraph::new(Line::from(spans)).block(block), area);
 }
 
 fn render_filter(model: &Model, f: &mut Frame, area: Rect) {
-    let mut spans: Vec<Span> = Vec::new();
+    let mut spans: Vec<Span> = vec![Span::raw(" ")];
     for filt in OriginFilter::ALL {
-        let label = format!(" {} ", filt.label());
+        let n = model
+            .data
+            .registry
+            .iter()
+            .filter(|e| filter_matches(filt, e))
+            .count();
         if filt == model.registry_ui.filter {
-            spans.push(Span::styled(label, Style::new().black().on_cyan()));
+            spans.push(Span::styled(
+                format!(" {} {n} ", filt.label()),
+                theme::chip(Tone::Accent),
+            ));
         } else {
-            spans.push(Span::from(label).dim());
+            spans.push(Span::styled(format!(" {}", filt.label()), theme::text()));
+            spans.push(Span::styled(format!(" {n} "), theme::muted()));
         }
+        spans.push(Span::raw(" "));
     }
-    let count = model.filtered_registry().len();
-    spans.push(Span::from(format!("   {count} 个")).dim());
+    spans.push(Span::raw(" "));
+    spans.extend(widgets::hints(&[("←→", "切换")]));
     f.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+fn filter_matches(filt: OriginFilter, e: &RegistryEntry) -> bool {
+    filt.bucket().is_none_or(|b| bucket_of(e) == b)
 }
 
 fn render_catalog(model: &Model, f: &mut Frame, area: Rect) {
     let entries = model.filtered_registry();
-    let block = Block::default()
-        .borders(Borders::TOP)
-        .border_style(Style::new().dim());
+    let focused = !model.registry_ui.searching;
+    let mut block = widgets::panel("MCP 目录", focused);
 
     if entries.is_empty() {
-        let msg = if model.data.registry.is_empty() {
-            "目录为空。到「来源」订阅或导入；用 mux discover mcp 查看外部配置。"
+        let inner = block.inner(area);
+        f.render_widget(block, area);
+        if model.data.registry.is_empty() {
+            widgets::empty_state(
+                f,
+                inner,
+                "目录为空。",
+                &[
+                    "到「来源」订阅或导入；",
+                    "用 mux discover mcp 查看外部配置。",
+                ],
+            );
         } else {
-            "没有匹配的条目。"
-        };
-        f.render_widget(
-            Paragraph::new(Line::from(Span::from(msg).dim())).block(block),
-            area,
-        );
+            widgets::empty_state(f, inner, "没有匹配的条目。", &["换个关键词或切换来源过滤"]);
+        }
         return;
     }
 
+    let cursor = model.registry_ui.cursor.min(entries.len() - 1);
+    block = block.title_top(widgets::corner_note(format!(
+        "{} / {}",
+        cursor + 1,
+        entries.len()
+    )));
+
+    // Optional columns appear only when some row needs them, so the common
+    // case spends its width on descriptions.
+    let usage: Vec<usize> = entries.iter().map(|e| model.usage_count(e)).collect();
+    let custom: Vec<bool> = entries
+        .iter()
+        .map(|e| model.data.custom_keys.contains(&e.key()))
+        .collect();
+    let any_custom = custom.iter().any(|c| *c);
+    let usage_w = usage
+        .iter()
+        .filter(|u| **u > 0)
+        .map(|u| width(&format!("{u} 用")))
+        .max();
+    let name_w = entries
+        .iter()
+        .map(|e| width(&e.name))
+        .max()
+        .unwrap_or(0)
+        .clamp(NAME_MIN, NAME_MAX);
+
     let items: Vec<ListItem> = entries
         .iter()
-        .map(|e| {
-            let usage = model.usage_count(e);
+        .enumerate()
+        .map(|(i, e)| {
+            let name_style = if i == cursor {
+                theme::selected(focused)
+            } else {
+                theme::text()
+            };
+            let transport = e.transport();
+            let (origin, origin_tone) = theme::origin(e);
             let mut spans = vec![
-                Span::from(e.name.clone()).green().bold(),
-                Span::from("  "),
-                transport_pill(e),
-                Span::from("  "),
-                origin_tag(e),
+                Span::styled(fit(&e.name, name_w), name_style),
+                Span::raw(theme::GAP),
+                Span::styled(
+                    fit(transport, 5),
+                    theme::fg(theme::transport_tone(transport)),
+                ),
+                Span::raw(theme::GAP),
+                Span::styled(origin, theme::fg(origin_tone)),
             ];
-            if model.data.custom_keys.contains(&e.key()) {
-                spans.push(Span::from("  ✎ 自定义").yellow());
+            if any_custom {
+                spans.push(Span::raw(theme::GAP));
+                spans.push(if custom[i] {
+                    Span::styled(
+                        format!("{} 自定义", glyph::EDITED),
+                        theme::fg(Tone::Warning),
+                    )
+                } else {
+                    Span::raw(fit("", width("✎ 自定义")))
+                });
             }
-            if usage > 0 {
-                spans.push(Span::from(format!("  {usage} 用")).blue());
+            if let Some(w) = usage_w {
+                spans.push(Span::raw(theme::GAP));
+                spans.push(if usage[i] > 0 {
+                    Span::styled(fit(&format!("{} 用", usage[i]), w), theme::fg(Tone::Info))
+                } else {
+                    Span::raw(fit("", w))
+                });
             }
             if !e.description.is_empty() {
-                spans.push(Span::from(format!("  — {}", e.description)).dim());
+                spans.push(Span::raw(theme::GAP));
+                spans.push(Span::styled(e.description.clone(), theme::muted()));
             }
             ListItem::new(Line::from(spans))
         })
         .collect();
 
-    render_list(
-        f,
-        area,
-        block,
-        items,
-        model.registry_ui.cursor,
-        !model.registry_ui.searching,
-    );
+    widgets::render_list(f, area, block, items, cursor, focused);
 }

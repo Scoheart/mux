@@ -101,7 +101,7 @@ function renderInstall(overrides: {
 
 async function resolveGithub(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText("仓库地址"), "  acme/skills  ");
-  await user.click(screen.getByRole("button", { name: "查找" }));
+  await user.click(screen.getByRole("button", { name: "导入" }));
   await screen.findByRole("checkbox", { name: "review-changes" });
 }
 
@@ -122,7 +122,7 @@ afterEach(cleanup);
 describe("SkillInstallDialog central asset intake", () => {
   it("keeps the source step compact without an empty single-action footer", async () => {
     const { props } = renderInstall();
-    const dialog = screen.getByRole("dialog", { name: "添加 Skill" });
+    const dialog = screen.getByRole("dialog", { name: "添加 Skills" });
     expect(dialog.querySelector(".mux-dialog-shell-footer")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
 
@@ -140,45 +140,35 @@ describe("SkillInstallDialog central asset intake", () => {
     expect(document.querySelector(".mux-skill-local-sources")).not.toBeInTheDocument();
   });
 
-  it("selects only central candidates and never exposes Agent assignment", async () => {
-    const user = userEvent.setup();
+  it("imports every resolved central candidate immediately without assigning Agents", async () => {
     const plan = vi.fn().mockResolvedValue(safeInstallPlan());
+    const commit = vi.fn().mockResolvedValue(skillsInventoryFixture());
     vi.mocked(api.resolveGithubSkillSource).mockResolvedValueOnce(twoCandidateResolution());
-    renderInstall({ plan });
-    await resolveGithub(user);
-
+    const { props } = renderInstall({ plan, commit });
+    await resolveGithub(userEvent.setup());
     expect(api.resolveGithubSkillSource).toHaveBeenCalledWith("acme/skills");
-    expect(screen.getByRole("checkbox", { name: "review-changes" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "release-notes" })).toBeChecked();
-    expect(screen.queryByText("目标 Agent")).not.toBeInTheDocument();
-    expect(document.querySelector(".mux-dialog-shell-footer")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "更换来源" })).toBeVisible();
-
-    await user.click(screen.getByRole("checkbox", { name: "release-notes" }));
-    await user.click(screen.getByRole("button", { name: "下载 Skill" }));
     expect(plan).toHaveBeenCalledWith({
       operation: "install_skill",
-      request: {
-        resolution_id: "resolve-fixture",
-        skill_names: ["review-changes"],
-        replace_conflicts: false,
-      },
+      request: { resolution_id: "resolve-fixture", skill_names: ["review-changes", "release-notes"], replace_conflicts: true },
     });
+    await waitFor(() => expect(props.onCommitted).toHaveBeenCalledOnce());
+    expect(commit).toHaveBeenCalledWith(safeInstallPlan(), null);
     expect(JSON.stringify(plan.mock.calls[0][0])).not.toContain("agent");
+    expect(screen.queryByRole("dialog", { name: "确认 Skill 更改" })).not.toBeInTheDocument();
   });
 
   it("uses the native local picker and keeps the source step on cancel", async () => {
     renderInstall();
     await userEvent.click(screen.getByRole("button", { name: "选择本地文件夹" }));
     expect(api.resolveLocalSkillSourceDialog).toHaveBeenCalledOnce();
-    expect(screen.getByRole("heading", { name: "添加 Skill" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "添加 Skills" })).toBeVisible();
   });
 
   it("uses the native archive picker and keeps the source step on cancel", async () => {
     renderInstall();
     await userEvent.click(screen.getByRole("button", { name: "选择 Skill 压缩包" }));
     expect(api.resolveArchiveSkillSourceDialog).toHaveBeenCalledOnce();
-    expect(screen.getByRole("heading", { name: "添加 Skill" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "添加 Skills" })).toBeVisible();
   });
 
   it("imports an archive directly without opening an audit dialog", async () => {
@@ -199,41 +189,23 @@ describe("SkillInstallDialog central asset intake", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "选择 Skill 压缩包" }));
     await screen.findByRole("checkbox", { name: "review-changes" });
-    await userEvent.click(screen.getByRole("button", { name: "导入 Skill" }));
 
     await waitFor(() => expect(commit).toHaveBeenCalledWith(planned, null));
     expect(screen.queryByRole("dialog", { name: "确认 Skill 更改" })).not.toBeInTheDocument();
   });
 
-  it("asks to back up only after a same-name conflict", async () => {
-    const user = userEvent.setup();
-    const cancel = vi.fn().mockResolvedValue(undefined);
-    const plan = vi.fn()
-      .mockRejectedValueOnce({ code: "conflict", message: "central Skill content already exists" })
+  it("shows a failed import and allows retrying the staged source", async () => {
+    const plan = vi.fn().mockRejectedValueOnce({ code: "conflict", message: "central Skill content already exists" })
       .mockResolvedValueOnce(safeInstallPlan());
-    renderInstall({ plan, cancel });
-    await resolveGithub(user);
-    await user.click(screen.getByRole("button", { name: "下载 Skill" }));
+    const commit = vi.fn().mockResolvedValue(skillsInventoryFixture());
+    renderInstall({ plan, commit });
+    await resolveGithub(userEvent.setup());
     expect(await screen.findByText("发现冲突")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "备份并下载" }));
+    expect(commit).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "备份并下载" }));
+    await waitFor(() => expect(commit).toHaveBeenCalledOnce());
     expect(plan).toHaveBeenCalledTimes(2);
-    expect(plan.mock.calls[0][0]).toEqual({
-      operation: "install_skill",
-      request: {
-        resolution_id: "resolve-fixture",
-        skill_names: ["review-changes"],
-        replace_conflicts: false,
-      },
-    });
-    expect(plan.mock.calls[1][0]).toEqual({
-      operation: "install_skill",
-      request: {
-        resolution_id: "resolve-fixture",
-        skill_names: ["review-changes"],
-        replace_conflicts: true,
-      },
-    });
-    expect(cancel).not.toHaveBeenCalled();
+    for (const [request] of plan.mock.calls) expect(request.request.replace_conflicts).toBe(true);
   });
 
   it("coalesces close cleanup and cancels the staged resolution once", async () => {
@@ -241,8 +213,9 @@ describe("SkillInstallDialog central asset intake", () => {
     const cancellation = deferred<void>();
     const cancel = vi.fn(() => cancellation.promise);
     const onClose = vi.fn();
-    renderInstall({ cancel, onClose });
+    renderInstall({ cancel, onClose, plan: vi.fn().mockRejectedValue({ code: "network_error", message: "retry later" }) });
     await resolveGithub(user);
+    await screen.findByText("retry later");
     const close = screen.getByRole("button", { name: "关闭" });
     fireEvent.click(close);
     fireEvent.keyDown(document, { key: "Escape" });
@@ -259,8 +232,7 @@ describe("SkillInstallDialog central asset intake", () => {
     const onCommitted = vi.fn();
     renderInstall({ commit, cancel, onCommitted });
     await resolveGithub(user);
-    await user.click(screen.getByRole("button", { name: "下载 Skill" }));
-    expect(commit).toHaveBeenCalledOnce();
+    await waitFor(() => expect(commit).toHaveBeenCalledOnce());
     expect(cancel).not.toHaveBeenCalled();
     const inventory = skillsInventoryFixture();
     committing.resolve(inventory);
@@ -274,46 +246,39 @@ describe("SkillInstallDialog central asset intake", () => {
     const cancel = vi.fn().mockResolvedValue(undefined);
     const { unmount } = renderInstall({ commit: vi.fn(() => committing.promise), cancel });
     await resolveGithub(user);
-    await user.click(screen.getByRole("button", { name: "下载 Skill" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /下载中/ })).toBeDisabled());
     unmount();
     committing.reject({ code: "recovery_required", message: "recovery required" });
     await act(async () => { await committing.promise.catch(() => undefined); });
     expect(cancel).not.toHaveBeenCalled();
   });
 
-  it("requires explicit risk review before committing the original installation plan", async () => {
-    const user = userEvent.setup();
+  it("binds direct import to the exact plan findings without a second confirmation", async () => {
     const planned = highRiskPlan("high-risk");
     const plan = vi.fn().mockResolvedValue(planned);
     const commit = vi.fn().mockResolvedValue(skillsInventoryFixture());
-    renderInstall({ plan, commit });
-    await resolveGithub(user);
-
-    await user.click(screen.getByRole("button", { name: "下载 Skill" }));
-
-    expect(await screen.findByRole("dialog", { name: "确认 Skill 更改" })).toBeVisible();
-    expect(commit).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "仍然安装" })).toBeDisabled();
-    await user.click(screen.getByRole("checkbox", { name: "我已了解高风险内容及其影响" }));
-    await user.click(screen.getByRole("button", { name: "仍然安装" }));
-    await waitFor(() => expect(commit).toHaveBeenLastCalledWith(planned, "high-risk"));
+    const { props } = renderInstall({ plan, commit });
+    await resolveGithub(userEvent.setup());
+    await waitFor(() => expect(props.onCommitted).toHaveBeenCalledOnce());
     expect(commit).toHaveBeenCalledOnce();
+    expect(commit).toHaveBeenCalledWith(planned, "high-risk");
     expect(plan).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog", { name: "确认 Skill 更改" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "我已了解高风险内容及其影响" })).not.toBeInTheDocument();
   });
 
-  it("cleans up a reviewed installation when the review is cancelled", async () => {
-    const planned = highRiskPlan("cancel-risk");
+  it("rejects a plan belonging to another resolution and cleans up both operations", async () => {
+    const planned = { ...safeInstallPlan(), operation_id: "other-resolution" };
     const commit = vi.fn();
     const cancel = vi.fn().mockResolvedValue(undefined);
     const { props } = renderInstall({ plan: vi.fn().mockResolvedValue(planned), commit, cancel });
-    const user = userEvent.setup();
-    await resolveGithub(user);
-    await user.click(screen.getByRole("button", { name: "下载 Skill" }));
-    await screen.findByRole("dialog", { name: "确认 Skill 更改" });
-    await user.click(screen.getByRole("button", { name: "取消" }));
-    await waitFor(() => expect(cancel).toHaveBeenCalledWith(planned.operation_id));
-    expect(props.onClose).toHaveBeenCalledOnce();
+    await resolveGithub(userEvent.setup());
+    await screen.findByText("安装计划未绑定当前来源，请重新读取来源。");
     expect(commit).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledWith("other-resolution");
+    await userEvent.click(screen.getByRole("button", { name: "关闭" }));
+    await waitFor(() => expect(props.onClose).toHaveBeenCalledOnce());
+    expect(cancel).toHaveBeenCalledWith("resolve-fixture");
   });
 
   it("accepts a source resolution after StrictMode replays mount effects", async () => {
@@ -342,8 +307,8 @@ describe("Skills central lifecycle orchestration", () => {
 
   it("opens central intake only from the top-level toolbar", async () => {
     renderWorkspace(skillsInventoryFixture());
-    await userEvent.click(screen.getByRole("button", { name: "添加 Skill" }));
-    expect(screen.getByRole("dialog", { name: "添加 Skill" })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "添加 Skills" }));
+    expect(screen.getByRole("dialog", { name: "添加 Skills" })).toBeVisible();
     expect(screen.queryByText("目标 Agent")).not.toBeInTheDocument();
   });
 

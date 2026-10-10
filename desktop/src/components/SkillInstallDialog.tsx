@@ -14,14 +14,12 @@ import * as api from "../lib/api";
 import { installWizardReducer } from "../lib/skills";
 import type {
   SkillCommandError,
-  OperationPlan,
   SkillSourceResolution,
   SkillsInventory,
 } from "../lib/types";
 import { FolderIcon, LinkIcon, PackageIcon } from "./icons";
 import { useToast } from "./Toast";
 import { DialogShell } from "./DialogShell";
-import { SkillReviewDialog } from "./SkillReviewDialog";
 
 export interface SkillInstallDialogProps {
   plan: SkillsState["plan"];
@@ -70,12 +68,12 @@ export function SkillInstallDialog({
     () => installWizardReducer(undefined, { type: "reset" }),
   );
   const [resolving, setResolving] = useState(false);
+  const resolvingRef = useRef(false);
   const [planning, setPlanning] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [closing, setClosing] = useState(false);
   const [sourceError, setSourceError] = useState<SkillCommandError | null>(null);
   const [planError, setPlanError] = useState<SkillCommandError | null>(null);
-  const [reviewPlan, setReviewPlan] = useState<OperationPlan | null>(null);
   const mountedRef = useRef(true);
   const closedRef = useRef(false);
   const committedRef = useRef(false);
@@ -175,6 +173,7 @@ export function SkillInstallDialog({
   const loadResolution = async (
     pendingResolution: Promise<SkillSourceResolution | null>,
   ) => {
+    resolvingRef.current = true;
     const generation = ++resolveGenerationRef.current;
     setResolving(true);
     setSourceError(null);
@@ -192,6 +191,8 @@ export function SkillInstallDialog({
 
       resolutionRef.current = resolution;
       dispatch({ type: "resolution_loaded", resolution });
+      dispatch({ type: "set_replace_conflicts", enabled: true });
+      await addSelected(resolution);
     } catch (reason) {
       if (
         !closedRef.current &&
@@ -201,6 +202,7 @@ export function SkillInstallDialog({
         setSourceError(normalizeSkillCommandError(reason));
       }
     } finally {
+      resolvingRef.current = false;
       if (
         !closedRef.current &&
         mountedRef.current &&
@@ -213,17 +215,17 @@ export function SkillInstallDialog({
 
   const resolveGithub = () => {
     const value = githubValue.trim();
-    if (!value || resolving) return;
+    if (!value || resolvingRef.current || planning || committing || closing) return;
     void loadResolution(api.resolveGithubSkillSource(value));
   };
 
   const resolveLocal = () => {
-    if (resolving) return;
+    if (resolvingRef.current || planning || committing || closing) return;
     void loadResolution(api.resolveLocalSkillSourceDialog());
   };
 
   const resolveArchive = () => {
-    if (resolving) return;
+    if (resolvingRef.current || planning || committing || closing) return;
     void loadResolution(api.resolveArchiveSkillSourceDialog());
   };
 
@@ -233,7 +235,6 @@ export function SkillInstallDialog({
     planGenerationRef.current += 1;
     if (resolution) await cancelOnce(resolution.operation_id, true);
     resolutionRef.current = null;
-    setReviewPlan(null);
     dispatch({ type: "reset" });
     setPlanError(null);
   };
@@ -271,20 +272,29 @@ export function SkillInstallDialog({
     onClose();
   };
 
-  const addSelected = async () => {
-    const resolution = resolutionRef.current;
+  const addSelected = async (directResolution?: SkillSourceResolution) => {
+    const resolution = directResolution ?? resolutionRef.current;
+    const skillNames = directResolution
+      ? directResolution.candidates.map((candidate) => candidate.name)
+      : wizard.selectedSkillNames;
+    const replaceConflicts = directResolution ? true : wizard.replaceConflicts;
     if (
       !resolution ||
-      wizard.selectedSkillNames.length === 0 ||
       planning ||
+      committing ||
+      commitPromiseRef.current ||
       closing
     ) {
       return;
     }
+    if (skillNames.length === 0) {
+      setPlanError({ code: "no_skills", message: "来源中没有找到可导入的 Skill。" });
+      return;
+    }
     const generation = ++planGenerationRef.current;
     const snapshot = selectedSnapshot(
-      wizard.selectedSkillNames,
-      wizard.replaceConflicts,
+      skillNames,
+      replaceConflicts,
     );
     setPlanning(true);
     setPlanError(null);
@@ -293,8 +303,8 @@ export function SkillInstallDialog({
         operation: "install_skill",
         request: {
           resolution_id: resolution.operation_id,
-          skill_names: wizard.selectedSkillNames,
-          replace_conflicts: wizard.replaceConflicts,
+          skill_names: skillNames,
+          replace_conflicts: replaceConflicts,
         },
       });
       const currentWizard = wizardRef.current;
@@ -302,11 +312,12 @@ export function SkillInstallDialog({
         mountedRef.current &&
         !closedRef.current &&
         planGenerationRef.current === generation &&
-        snapshot ===
+        resolutionRef.current?.operation_id === resolution.operation_id &&
+        (directResolution || snapshot ===
           selectedSnapshot(
             currentWizard.selectedSkillNames,
             currentWizard.replaceConflicts,
-          );
+          ));
       if (!stillCurrent) {
         return;
       }
@@ -318,14 +329,13 @@ export function SkillInstallDialog({
         });
         return;
       }
-      if (nextPlan.requires_risk_override) {
-        // Retain this exact reviewed candidate. A download/import click is not
-        // authorization to bypass Core's findings confirmation.
-        setReviewPlan(nextPlan);
-        return;
-      }
       try {
-        const inventory = await commitInstall(nextPlan, null);
+        // Direct import is the user's install intent. Bind any findings token to
+        // this exact Core plan; stale candidates and unsafe paths still fail closed.
+        const inventory = await commitInstall(
+          nextPlan,
+          nextPlan.requires_risk_override ? nextPlan.findings_hash : null,
+        );
         if (mountedRef.current && !closedRef.current) finishInstall(inventory);
       } catch (reason) {
         if (!mountedRef.current || closedRef.current) return;
@@ -376,16 +386,6 @@ export function SkillInstallDialog({
       ? `${actionVerb} ${selectedCount} 个 Skill`
       : `${actionVerb} Skill`;
 
-  if (reviewPlan) return (
-    <SkillReviewDialog
-      plan={reviewPlan}
-      onCommit={commitInstall}
-      onClose={closeDialog}
-      onCommitted={finishInstall}
-      onRecoveryRequired={enterRecovery}
-    />
-  );
-
   return (
     <DialogShell
       leading={<span className="mux-dialog-shell-glyph"><ResourceIcon domain="skill" /></span>}
@@ -393,7 +393,7 @@ export function SkillInstallDialog({
       kind="editor"
       size="md"
       title="添加 Skills"
-      subtitle="从 GitHub 下载，或从本地直接导入。"
+      subtitle="输入来源直接导入全部 Skills；同名 Skill 先备份再替换。"
       busy={busy}
       closeLabel="关闭"
       onClose={() => void closeDialog()}
@@ -432,7 +432,7 @@ export function SkillInstallDialog({
                     data-modal-initial-focus
                     type="text"
                     value={githubValue}
-                    disabled={resolving || closing}
+                    disabled={busy}
                     placeholder="owner/repo 或 GitHub URL"
                     onChange={(event) => setGithubValue(event.target.value)}
                     onKeyDown={(event) => {
@@ -445,10 +445,10 @@ export function SkillInstallDialog({
                   <button
                     type="button"
                     className="btn-primary"
-                    disabled={!githubValue.trim() || resolving || closing}
+                    disabled={!githubValue.trim() || busy}
                     onClick={resolveGithub}
                   >
-                    {resolving ? "查找中…" : "查找"}
+                    {resolving || planning || committing ? "导入中…" : "导入"}
                   </button>
                 </div>
               </section>
@@ -457,7 +457,7 @@ export function SkillInstallDialog({
                 type="button"
                 className="mux-skill-local-source"
                 aria-label="选择本地文件夹"
-                disabled={resolving || closing}
+                disabled={busy}
                 onClick={resolveLocal}
               >
                 <span className="mux-skill-local-source-icon"><FolderIcon className="w-4 h-4" /></span>
@@ -470,7 +470,7 @@ export function SkillInstallDialog({
                 type="button"
                 className="mux-skill-local-source"
                 aria-label="选择 Skill 压缩包"
-                disabled={resolving || closing}
+                disabled={busy}
                 onClick={resolveArchive}
               >
                 <span className="mux-skill-local-source-icon"><PackageIcon className="w-4 h-4" /></span>
@@ -508,7 +508,7 @@ export function SkillInstallDialog({
 
               <section>
                 <div className="mux-skill-selection-heading">
-                  <h3>选择 Skill</h3>
+                  <h3>{busy ? "正在导入 Skills" : "找到的 Skills"}</h3>
                   <span>{candidateCount} 项</span>
                 </div>
                 <div className="mux-skill-choice-list">
@@ -518,7 +518,7 @@ export function SkillInstallDialog({
                         type="checkbox"
                         aria-label={candidate.name}
                         checked={wizard.selectedSkillNames.includes(candidate.name)}
-                        disabled={planning || closing}
+                        disabled={busy}
                         onChange={() => {
                           setPlanError(null);
                           dispatch({ type: "set_replace_conflicts", enabled: false });
@@ -536,12 +536,12 @@ export function SkillInstallDialog({
 
               {planError && (
                 <div
-                  className={wizard.replaceConflicts ? "mux-skill-conflict-prompt" : "mux-skill-dialog-error"}
+                  className={planError.code === "conflict" ? "mux-skill-conflict-prompt" : "mux-skill-dialog-error"}
                   role="alert"
                 >
-                  <strong>{wizard.replaceConflicts ? "发现冲突" : planError.message}</strong>
-                  {wizard.replaceConflicts && <span>{planError.message}</span>}
-                  {wizard.replaceConflicts && <small>再次操作会先备份原内容。</small>}
+                  <strong>{planError.code === "conflict" ? "发现冲突" : planError.message}</strong>
+                  {planError.code === "conflict" && <span>{planError.message}</span>}
+                  {planError.code === "conflict" && <small>再次操作会先备份原内容。</small>}
                   {planError.retry_at && <code>可重试时间：{planError.retry_at}</code>}
                 </div>
               )}

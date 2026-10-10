@@ -6,12 +6,14 @@ A Skill is an instruction directory containing `SKILL.md`. MUX keeps one central
 
 | Source | Workflow |
 |---|---|
-| GitHub | Enter a public repository or subdirectory URL, then select specific Skills |
+| GitHub | Enter a public repository or subdirectory URL and press Enter or click Import |
 | Local folder | Select one Skill or a directory containing several |
 | Archive | Import `.zip`, `.tar.gz`, `.tgz`, or `.tar` |
 | External Agent copy | Observe it first, then explicitly import that exact copy |
 
 GitHub, folder, and archive installation does not require Git, Node.js, or `npx`. Download or import creates a central asset; assigning it is a separate step.
+
+Submitting a source directly imports every discovered Skill without a second installation review. Use a Skill's subdirectory URL to import only that Skill. Same-name central copies are backed up before replacement; existing assignments and disabled states are retained. Core still validates paths, archives, and candidate content. Importing does not execute scripts.
 
 ## Source navigation and cards
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.12.2](https://github.com/Scoheart/mux/compare/v1.12.1...v1.12.2) (2026-10-10)
+
+### Changes
+
+* fix(skills): import submitted sources without a second confirmation ([353c3b4](https://github.com/Scoheart/mux/commit/353c3b430ed34a3aff9c9f930b7442e99a54b084))
+
 ## [1.12.1](https://github.com/Scoheart/mux/compare/v1.12.0...v1.12.1) (2026-10-09)
 
 ### Changes

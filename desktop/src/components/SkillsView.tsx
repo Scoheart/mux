@@ -33,6 +33,7 @@ import {
   RefreshIcon,
 } from "./icons";
 import { SkillCard } from "./SkillCard";
+import { DialogShell } from "./DialogShell";
 import { ResourceState } from "./ResourceState";
 import { SkillInstallDialog } from "./SkillInstallDialog";
 import {
@@ -79,6 +80,9 @@ export function SkillsView({
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("all");
   const [checking, setChecking] = useState(false);
+  const [removeGroup, setRemoveGroup] = useState<{ label: string; names: string[] } | null>(null);
+  const [removingGroup, setRemovingGroup] = useState(false);
+  const removingGroupRef = useRef(false);
   const [selectedIdentity, setSelectedIdentity] = useState<string | null>(null);
   const [detail, setDetail] = useState<SkillDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -149,6 +153,8 @@ export function SkillsView({
     (state.error?.code === "recovery_required" ? state.error.message : null);
   const checkDisabled =
     checking ||
+    removingGroup ||
+    lifecycleReview !== null ||
     lifecyclePlanning ||
     state.loading ||
     state.pendingOperation !== null ||
@@ -321,6 +327,44 @@ export function SkillsView({
     } finally {
       lifecyclePendingRef.current = false;
       if (mounted.current) setLifecyclePlanning(false);
+    }
+  };
+
+  const removeCollection = async () => {
+    if (!removeGroup || removingGroupRef.current || checkDisabled) return;
+    const { names } = removeGroup;
+    removingGroupRef.current = true;
+    setRemovingGroup(true);
+    lifecyclePendingRef.current = true;
+    let removed = 0;
+    let pending: OperationPlan | null = null;
+    try {
+      for (const name of names) {
+        pending = await state.plan({ operation: "remove_skill", request: { skill_name: name } });
+        await commitLifecycle(pending, pending.requires_risk_override ? pending.findings_hash : null);
+        pending = null;
+        removed += 1;
+      }
+      if (mounted.current) {
+        setRemoveGroup(null);
+        closeInspector();
+        toast.show({ kind: "success", msg: `已删除 ${removed} 个 Skill。` });
+      }
+    } catch (reason) {
+      const error = normalizeSkillCommandError(reason);
+      if (error.code === "recovery_required") {
+        if (mounted.current) enterRecovery(error.message);
+      } else if (pending) {
+        await cleanupLifecyclePlan(pending, false);
+      }
+      if (mounted.current) {
+        setRemoveGroup(null);
+        toast.show({ kind: "error", msg: `已删除 ${removed}/${names.length} 个 Skill，剩余项已停止处理：${error.message}` });
+      }
+    } finally {
+      lifecyclePendingRef.current = false;
+      removingGroupRef.current = false;
+      if (mounted.current) setRemovingGroup(false);
     }
   };
 
@@ -536,6 +580,12 @@ export function SkillsView({
             title={selectedSource ? selectedSource.label || t("skillLibrary.unknown") : t("skillLibrary.all")}
             description={selectedSource ? undefined : t("skillLibrary.description")}
             icon={<ResourceIcon domain="skill" className="w-6 h-6" />}
+            actions={selectedSource && items.some((item) => skillSourceGroup(item).id === selectedSource.id && item.location.kind === "central") ? (
+              <button type="button" className="btn-ghost" disabled={checkDisabled || removingGroup}
+                onClick={() => setRemoveGroup({ label: selectedSource.label || t("skillLibrary.unknown"), names: items.filter((item) => skillSourceGroup(item).id === selectedSource.id && item.location.kind === "central").map((item) => item.name) })}>
+                删除集合
+              </button>
+            ) : undefined}
           >
             {sourceLocation && <dl className="mux-resource-overview-facts">
               <div>
@@ -611,7 +661,7 @@ export function SkillsView({
               onClose={closeInspector}
               onPlan={(intent) => void planLifecycle(intent)}
               planning={lifecyclePlanning}
-              readOnly={recoveryError !== null || state.pendingOperation !== null}
+              readOnly={removingGroup || recoveryError !== null || state.pendingOperation !== null}
             />
           ) : undefined
         }
@@ -684,6 +734,15 @@ export function SkillsView({
           }}
           onRecoveryRequired={enterRecovery}
         />
+      )}
+      {removeGroup && (
+        <DialogShell kind="review" title="删除 Skill 集合" subtitle={removeGroup.label}
+          busy={removingGroup} onClose={() => setRemoveGroup(null)}
+          footerEnd={<><button type="button" className="btn-ghost" disabled={removingGroup} onClick={() => setRemoveGroup(null)}>取消</button>
+            <button type="button" className="btn-primary" disabled={removingGroup || checkDisabled} onClick={() => void removeCollection()}>{removingGroup ? "删除中…" : `删除 ${removeGroup.names.length} 个 Skill`}</button></>}>
+          <p>删除此集合中的 {removeGroup.names.length} 个中央 Skill，并解除对应的 Agent 分配。Core 会保留恢复备份。</p>
+          <p>外部扫描到的文件保持只读。各项独立提交，如遇失败将停止，已完成的删除会保留。</p>
+        </DialogShell>
       )}
       {lifecycleReview && (
         <SkillReviewDialog

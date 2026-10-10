@@ -87,7 +87,7 @@ impl OriginFilter {
     }
 
     /// The `bucket` value this filter matches (None = All, matches everything).
-    fn bucket(self) -> Option<&'static str> {
+    pub fn bucket(self) -> Option<&'static str> {
         match self {
             OriginFilter::All => None,
             OriginFilter::Remote => Some("remote"),

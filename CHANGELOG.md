@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.13.0](https://github.com/Scoheart/mux/compare/v1.12.2...v1.13.0) (2026-10-10)
+
+### Changes
+
+* feat(skills): delete managed skills by source collection ([11b77a6](https://github.com/Scoheart/mux/commit/11b77a65cde8537899d92ba8096d656e57556449))
+
 ## [1.12.2](https://github.com/Scoheart/mux/compare/v1.12.1...v1.12.2) (2026-10-10)
 
 ### Changes
